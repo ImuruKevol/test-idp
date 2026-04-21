@@ -1,0 +1,11 @@
+{
+    "id": "temp.account.list",
+    "mode": "portal",
+    "title": "Temporary Account List",
+    "namespace": "temp.account.list",
+    "category": "editor",
+    "viewuri": "",
+    "controller": "",
+    "template": "wiz-portal-idpcore-temp-account-list()",
+    "type": "app"
+}

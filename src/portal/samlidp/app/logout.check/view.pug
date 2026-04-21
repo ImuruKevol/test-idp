@@ -1,0 +1,240 @@
+div(class="space-y-6")
+    // Loading
+    div(*ngIf="loading", class="flex items-center justify-center py-8")
+        div(class="text-[13px] text-zinc-500") 로딩 중...
+
+    // ─── Overview Mode ───
+    div(*ngIf="mode === 'overview' && !loading")
+        // Active Sessions
+        div(class="space-y-3")
+            div(class="flex items-center justify-between")
+                h3(class="text-[15px] font-semibold text-zinc-950") 활성 SAML 세션
+                button(type="button",
+                    (click)="loadData()",
+                    class="inline-flex items-center gap-1 rounded-lg bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-200 transition") 새로고침
+
+            div(*ngIf="activeSessions.length === 0", class="rounded-lg border border-zinc-200 bg-zinc-50 p-4")
+                p(class="text-[13px] text-zinc-500") 활성 세션이 없습니다.
+
+            div(*ngIf="activeSessions.length > 0", class="overflow-hidden rounded-lg border border-zinc-200")
+                table(class="w-full text-[13px]")
+                    thead
+                        tr(class="bg-zinc-50 text-left text-xs font-medium uppercase tracking-wider text-zinc-500")
+                            th(class="px-4 py-2") SP Entity
+                            th(class="px-4 py-2") 사용자
+                            th(class="px-4 py-2") SessionIndex
+                            th(class="px-4 py-2") 생성 시각
+                            th(class="px-4 py-2 text-right") 작업
+                    tbody
+                        tr(*ngFor="let s of activeSessions", class="border-t border-zinc-100 hover:bg-zinc-50")
+                            td(class="px-4 py-2 font-mono text-xs break-all max-w-[200px]") {{ s.sp_entity_id }}
+                            td(class="px-4 py-2") {{ s.user_display || s.user_id }}
+                            td(class="px-4 py-2 font-mono text-xs") {{ s.session_index }}
+                            td(class="px-4 py-2 text-xs text-zinc-500") {{ s.created }}
+                            td(class="px-4 py-2 text-right")
+                                button(type="button",
+                                    (click)="invalidateSession(s.id)",
+                                    class="text-xs text-red-600 hover:text-red-800 font-medium") 무효화
+
+        // SP-initiated SLO: Parse LogoutRequest
+        div(class="space-y-3 mt-6")
+            h3(class="text-[15px] font-semibold text-zinc-950") SP-initiated SLO: LogoutRequest 파싱
+            div(class="space-y-3 rounded-lg border border-zinc-200 bg-white p-4")
+                div
+                    label(class="block text-xs font-medium text-zinc-600 mb-1") SAMLRequest (Base64)
+                    textarea([(ngModel)]="samlRequestInput",
+                        rows="4",
+                        placeholder="SP가 전송한 LogoutRequest (Base64 인코딩) 을 여기에 붙여넣으세요",
+                        class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-[13px] font-mono focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
+                div(class="flex gap-3")
+                    div
+                        label(class="block text-xs font-medium text-zinc-600 mb-1") RelayState
+                        input([(ngModel)]="relayStateInput",
+                            type="text",
+                            placeholder="RelayState (선택)",
+                            class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-[13px] focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
+                    div
+                        label(class="block text-xs font-medium text-zinc-600 mb-1") Binding
+                        select([(ngModel)]="bindingInput",
+                            class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-[13px] focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
+                            option(value="POST") HTTP-POST
+                            option(value="Redirect") HTTP-Redirect
+                button(type="button",
+                    (click)="parseLogoutRequest()",
+                    class="inline-flex items-center rounded-lg bg-orange-500 px-4 py-2 text-[13px] font-semibold text-white hover:bg-orange-600 transition") LogoutRequest 파싱
+
+        // IdP-initiated SLO
+        div(class="space-y-3 mt-6")
+            h3(class="text-[15px] font-semibold text-zinc-950") IdP-initiated SLO: LogoutRequest 생성
+            div(class="space-y-3 rounded-lg border border-zinc-200 bg-white p-4")
+                div
+                    label(class="block text-xs font-medium text-zinc-600 mb-1") SP 선택
+                    select([(ngModel)]="selectedSpId",
+                        (ngModelChange)="onSpChange()",
+                        class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-[13px] focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
+                        option(value="") SP를 선택하세요
+                        option(*ngFor="let sp of spList", [value]="sp.id") {{ sp.entity_id }}
+                div(class="flex gap-3")
+                    div(class="flex-1")
+                        label(class="block text-xs font-medium text-zinc-600 mb-1") NameID 값
+                        input([(ngModel)]="nameidValue",
+                            type="text",
+                            placeholder="예: alice@example.com",
+                            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-[13px] focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
+                    div(class="flex-1")
+                        label(class="block text-xs font-medium text-zinc-600 mb-1") NameID Format
+                        select([(ngModel)]="nameidFormat",
+                            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-[13px] focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
+                            option(value="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress") emailAddress
+                            option(value="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent") persistent
+                            option(value="urn:oasis:names:tc:SAML:2.0:nameid-format:transient") transient
+                            option(value="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified") unspecified
+                div(class="flex items-center gap-2")
+                    input([(ngModel)]="signLogoutRequest",
+                        type="checkbox",
+                        id="sign-logout-req",
+                        class="rounded border-zinc-300 text-orange-500 focus:ring-orange-500")
+                    label(for="sign-logout-req", class="text-[13px] text-zinc-700") 서명 포함
+                button(type="button",
+                    (click)="buildIdpLogoutRequest()",
+                    class="inline-flex items-center rounded-lg bg-zinc-800 px-4 py-2 text-[13px] font-semibold text-white hover:bg-zinc-900 transition") IdP LogoutRequest 생성
+
+    // ─── Respond Mode (after parsing SP LogoutRequest) ───
+    div(*ngIf="mode === 'respond' && !loading")
+        button(type="button",
+            (click)="showOverview()",
+            class="mb-4 inline-flex items-center text-[13px] text-orange-600 hover:text-orange-700 font-medium") ← 돌아가기
+
+        div(class="space-y-4")
+            h3(class="text-[15px] font-semibold text-zinc-950") 파싱된 LogoutRequest
+            div(class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-2 text-[13px]")
+                div(class="flex gap-2")
+                    span(class="font-medium text-zinc-600 w-40 shrink-0") Request ID:
+                    span(class="font-mono text-xs break-all") {{ parsedLogoutRequest?.request_id }}
+                div(class="flex gap-2")
+                    span(class="font-medium text-zinc-600 w-40 shrink-0") Issuer (SP):
+                    span(class="font-mono text-xs break-all") {{ parsedLogoutRequest?.issuer }}
+                div(class="flex gap-2")
+                    span(class="font-medium text-zinc-600 w-40 shrink-0") NameID:
+                    span(class="font-mono text-xs") {{ parsedLogoutRequest?.nameid_value }}
+                div(class="flex gap-2")
+                    span(class="font-medium text-zinc-600 w-40 shrink-0") NameID Format:
+                    span(class="font-mono text-xs") {{ parsedLogoutRequest?.nameid_format }}
+                div(class="flex gap-2")
+                    span(class="font-medium text-zinc-600 w-40 shrink-0") SessionIndex:
+                    span(class="font-mono text-xs") {{ stringify(parsedLogoutRequest?.session_indexes) }}
+                div(class="flex gap-2")
+                    span(class="font-medium text-zinc-600 w-40 shrink-0") 매칭된 세션:
+                    span(class="text-xs")
+                        span(*ngIf="parsedLogoutRequest?.matched_sessions?.length > 0", class="text-green-600 font-medium") {{ parsedLogoutRequest?.matched_sessions?.length }}개 세션 매칭
+                        span(*ngIf="!parsedLogoutRequest?.matched_sessions?.length", class="text-zinc-500") 매칭된 세션 없음
+
+            div(class="space-y-3")
+                h4(class="text-[13px] font-semibold text-zinc-800") LogoutResponse 생성 옵션
+                div(class="flex gap-3 items-center")
+                    div(class="flex items-center gap-2")
+                        input([(ngModel)]="signLogoutResponse",
+                            type="checkbox",
+                            id="sign-logout-resp",
+                            class="rounded border-zinc-300 text-orange-500 focus:ring-orange-500")
+                        label(for="sign-logout-resp", class="text-[13px] text-zinc-700") 서명 포함
+
+                    div
+                        label(class="text-xs font-medium text-zinc-600 mr-1") Status:
+                        select([(ngModel)]="logoutStatusCode",
+                            class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-[13px] focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
+                            option(value="urn:oasis:names:tc:SAML:2.0:status:Success") Success
+                            option(value="urn:oasis:names:tc:SAML:2.0:status:Requester") Requester Error
+                            option(value="urn:oasis:names:tc:SAML:2.0:status:Responder") Responder Error
+
+                button(type="button",
+                    (click)="buildLogoutResponse()",
+                    class="inline-flex items-center rounded-lg bg-orange-500 px-4 py-2 text-[13px] font-semibold text-white hover:bg-orange-600 transition") LogoutResponse 생성 & 세션 무효화
+
+    // ─── Result Mode (LogoutResponse) ───
+    div(*ngIf="mode === 'result' && !loading")
+        button(type="button",
+            (click)="showOverview()",
+            class="mb-4 inline-flex items-center text-[13px] text-orange-600 hover:text-orange-700 font-medium") ← 돌아가기
+
+        div(class="space-y-4")
+            h3(class="text-[15px] font-semibold text-zinc-950") LogoutResponse 생성 완료
+            div(class="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3")
+                div(class="flex gap-2 text-[13px]")
+                    span(class="font-medium text-zinc-600 w-36 shrink-0") Response ID:
+                    span(class="font-mono text-xs") {{ result?.response_id }}
+                div(class="flex gap-2 text-[13px]")
+                    span(class="font-medium text-zinc-600 w-36 shrink-0") Destination:
+                    span(class="font-mono text-xs break-all") {{ result?.destination || '(없음)' }}
+                div(class="flex gap-2 text-[13px]")
+                    span(class="font-medium text-zinc-600 w-36 shrink-0") Status:
+                    span(class="font-mono text-xs") {{ result?.status_code }}
+                div(*ngIf="result?.relay_state", class="flex gap-2 text-[13px]")
+                    span(class="font-medium text-zinc-600 w-36 shrink-0") RelayState:
+                    span(class="font-mono text-xs") {{ result?.relay_state }}
+
+            div(class="space-y-2")
+                div(class="flex items-center justify-between")
+                    label(class="text-xs font-medium text-zinc-600") LogoutResponse (Base64)
+                    button(type="button",
+                        (click)="copyText(result?.response_b64)",
+                        class="text-xs text-orange-600 hover:text-orange-700 font-medium") 복사
+                textarea(readonly="",
+                    [value]="result?.response_b64 || ''",
+                    rows="4",
+                    class="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-[13px] font-mono")
+
+            div(class="space-y-2")
+                div(class="flex items-center justify-between")
+                    label(class="text-xs font-medium text-zinc-600") LogoutResponse (XML)
+                    button(type="button",
+                        (click)="copyText(result?.response_xml)",
+                        class="text-xs text-orange-600 hover:text-orange-700 font-medium") 복사
+                textarea(readonly="",
+                    [value]="result?.response_xml || ''",
+                    rows="8",
+                    class="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-[13px] font-mono")
+
+    // ─── IdP Result Mode (LogoutRequest) ───
+    div(*ngIf="mode === 'idp-result' && !loading")
+        button(type="button",
+            (click)="showOverview()",
+            class="mb-4 inline-flex items-center text-[13px] text-orange-600 hover:text-orange-700 font-medium") ← 돌아가기
+
+        div(class="space-y-4")
+            h3(class="text-[15px] font-semibold text-zinc-950") IdP LogoutRequest 생성 완료
+            div(class="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3")
+                div(class="flex gap-2 text-[13px]")
+                    span(class="font-medium text-zinc-600 w-36 shrink-0") Request ID:
+                    span(class="font-mono text-xs") {{ result?.request_id }}
+                div(class="flex gap-2 text-[13px]")
+                    span(class="font-medium text-zinc-600 w-36 shrink-0") Destination:
+                    span(class="font-mono text-xs break-all") {{ result?.destination || '(없음 — SP에 SLO URL 없음)' }}
+                div(class="flex gap-2 text-[13px]")
+                    span(class="font-medium text-zinc-600 w-36 shrink-0") NameID:
+                    span(class="font-mono text-xs") {{ result?.nameid_value }}
+                div(class="flex gap-2 text-[13px]")
+                    span(class="font-medium text-zinc-600 w-36 shrink-0") SessionIndexes:
+                    span(class="font-mono text-xs") {{ stringify(result?.session_indexes) }}
+
+            div(class="space-y-2")
+                div(class="flex items-center justify-between")
+                    label(class="text-xs font-medium text-zinc-600") LogoutRequest (Base64)
+                    button(type="button",
+                        (click)="copyText(result?.request_b64)",
+                        class="text-xs text-orange-600 hover:text-orange-700 font-medium") 복사
+                textarea(readonly="",
+                    [value]="result?.request_b64 || ''",
+                    rows="4",
+                    class="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-[13px] font-mono")
+
+            div(class="space-y-2")
+                div(class="flex items-center justify-between")
+                    label(class="text-xs font-medium text-zinc-600") LogoutRequest (XML)
+                    button(type="button",
+                        (click)="copyText(result?.request_xml)",
+                        class="text-xs text-orange-600 hover:text-orange-700 font-medium") 복사
+                textarea(readonly="",
+                    [value]="result?.request_xml || ''",
+                    rows="8",
+                    class="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-[13px] font-mono")

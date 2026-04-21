@@ -1,0 +1,11 @@
+{
+    "id": "provider.publish",
+    "mode": "portal",
+    "title": "Provider Publish",
+    "namespace": "provider.publish",
+    "category": "editor",
+    "viewuri": "",
+    "controller": "",
+    "template": "wiz-portal-oidcidp-provider-publish()",
+    "type": "app"
+}

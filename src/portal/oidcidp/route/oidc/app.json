@@ -1,0 +1,8 @@
+{
+    "id": "oidc",
+    "title": "OIDC API",
+    "route": "/api/oidc/<path:path>",
+    "category": "",
+    "viewuri": "",
+    "controller": ""
+}

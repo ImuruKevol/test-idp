@@ -1,0 +1,97 @@
+div(class="w-full max-w-2xl mx-auto")
+    div(class="space-y-4")
+        // 아이디
+        div(class="flex flex-col gap-1")
+            label(class="text-[13px] font-medium text-zinc-700") 아이디 (username)
+            input(type="text",
+                class="w-full px-3 py-2 text-[13px] border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
+                [(ngModel)]="form.username",
+                (ngModelChange)="service.render()",
+                [disabled]="mode === 'edit'",
+                placeholder="temp_user_01")
+
+        // 비밀번호
+        div(class="flex flex-col gap-1")
+            label(class="text-[13px] font-medium text-zinc-700")
+                | 비밀번호
+                span(*ngIf="mode === 'edit'", class="text-xs text-zinc-400 ml-1") (변경 시에만 입력)
+            input(type="password",
+                class="w-full px-3 py-2 text-[13px] border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
+                [(ngModel)]="form.password",
+                (ngModelChange)="service.render()",
+                placeholder="••••••••")
+
+        // 표시 이름
+        div(class="flex flex-col gap-1")
+            label(class="text-[13px] font-medium text-zinc-700") 표시 이름
+            input(type="text",
+                class="w-full px-3 py-2 text-[13px] border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
+                [(ngModel)]="form.display_name",
+                (ngModelChange)="service.render()",
+                placeholder="Temp User 01")
+
+        // 이메일
+        div(class="flex flex-col gap-1")
+            label(class="text-[13px] font-medium text-zinc-700") 이메일
+            input(type="email",
+                class="w-full px-3 py-2 text-[13px] border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
+                [(ngModel)]="form.email",
+                (ngModelChange)="service.render()",
+                placeholder="user@example.com")
+
+        // Profile (JSON)
+        div(class="flex flex-col gap-1")
+            label(class="text-[13px] font-medium text-zinc-700") Profile (JSON)
+            textarea(class="w-full px-3 py-2 text-[13px] font-mono border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[80px]",
+                [(ngModel)]="form.profile",
+                (ngModelChange)="service.render()",
+                placeholder='{"department":"engineering","groups":["developers"]}')
+
+        // SAML Attributes (JSON)
+        div(class="flex flex-col gap-1")
+            label(class="text-[13px] font-medium text-zinc-700") SAML Attributes (JSON)
+            textarea(class="w-full px-3 py-2 text-[13px] font-mono border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[80px]",
+                [(ngModel)]="form.saml_attributes",
+                (ngModelChange)="service.render()",
+                placeholder='{"urn:oid:0.9.2342.19200300.100.1.1":"temp01","urn:oid:0.9.2342.19200300.100.1.3":"temp01@test-idp.local"}')
+            div(class="rounded-xl border border-sky-200 bg-sky-50 p-3")
+                p(class="text-xs font-semibold text-sky-800") OID 속성 선택
+                p(class="mt-1 text-xs text-sky-700") friendly name으로 입력해도 저장 시 OID URN으로 정규화됩니다. 목록을 누르면 표준 OID 예시가 JSON에 바로 추가됩니다.
+                div(class="mt-3 grid gap-2 md:grid-cols-2")
+                    button(*ngFor="let attr of samlAttributeCatalog",
+                        type="button",
+                        class="rounded-lg border border-sky-200 bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50",
+                        (click)="insertSamlAttribute(attr)")
+                        div(class="flex items-center justify-between gap-2")
+                            span(class="text-[13px] font-semibold text-zinc-900") {{ attr.friendly_name || attr.urn }}
+                            span(*ngIf="attr.custom", class="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700") CUSTOM
+                        p(class="mt-1 text-[11px] font-mono text-zinc-500 break-all") {{ attr.urn }}
+                        p(class="mt-1 text-[11px] text-zinc-600 break-all") 예시: {{ stringifyValue(attr.example) }}
+
+        // OIDC Claims (JSON)
+        div(class="flex flex-col gap-1")
+            label(class="text-[13px] font-medium text-zinc-700") OIDC Claims (JSON)
+            textarea(class="w-full px-3 py-2 text-[13px] font-mono border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[80px]",
+                [(ngModel)]="form.oidc_claims",
+                (ngModelChange)="service.render()",
+                placeholder='{"preferred_username":"temp01","email":"temp01@test-idp.local"}')
+
+        // 안내 문구
+        div(*ngIf="mode === 'create'", class="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg")
+            svg(class="size-4 text-amber-500 shrink-0", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
+                path(stroke-linecap="round", stroke-linejoin="round", d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z")
+            span(class="text-xs text-amber-700") 임시 계정은 생성 시점부터 24시간 후 자동으로 만료됩니다.
+
+        // 버튼
+        div(class="flex items-center justify-end gap-2 pt-2")
+            button(type="button",
+                class="px-4 py-2 text-[13px] text-zinc-600 bg-white border border-zinc-300 rounded-lg hover:bg-zinc-50 transition-colors",
+                (click)="cancel()")
+                | 취소
+            button(type="button",
+                class="px-4 py-2 text-[13px] text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50",
+                [disabled]="saving",
+                (click)="save()")
+                span(*ngIf="!saving")
+                    | {{ mode === 'create' ? '생성' : '저장' }}
+                span(*ngIf="saving") 처리 중...

@@ -1,0 +1,11 @@
+{
+    "mode": "page",
+    "id": "page.saml",
+    "title": "/saml/:tab?",
+    "namespace": "saml",
+    "viewuri": "/saml/:tab?",
+    "category": "",
+    "controller": "base",
+    "layout": "layout.topnav",
+    "template": "wiz-page-saml()"
+}

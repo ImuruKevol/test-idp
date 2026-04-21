@@ -1,0 +1,11 @@
+{
+    "id": "authorize.check",
+    "mode": "portal",
+    "title": "Authorize Check",
+    "namespace": "authorize.check",
+    "category": "editor",
+    "viewuri": "",
+    "controller": "",
+    "template": "wiz-portal-oidcidp-authorize-check()",
+    "type": "app"
+}

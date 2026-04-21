@@ -1,0 +1,11 @@
+{
+    "id": "logout.check",
+    "mode": "portal",
+    "title": "Logout Check",
+    "namespace": "logout.check",
+    "category": "editor",
+    "viewuri": "",
+    "controller": "",
+    "template": "wiz-portal-oidcidp-logout-check()",
+    "type": "app"
+}

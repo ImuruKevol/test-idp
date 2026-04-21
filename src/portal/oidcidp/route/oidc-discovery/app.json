@@ -1,0 +1,8 @@
+{
+    "id": "oidc-discovery",
+    "title": "OIDC Discovery",
+    "route": "/.well-known/openid-configuration",
+    "category": "",
+    "viewuri": "",
+    "controller": ""
+}

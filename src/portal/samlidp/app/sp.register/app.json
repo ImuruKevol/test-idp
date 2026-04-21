@@ -1,0 +1,11 @@
+{
+    "id": "sp.register",
+    "mode": "portal",
+    "title": "SP Register",
+    "namespace": "sp.register",
+    "category": "editor",
+    "viewuri": "",
+    "controller": "",
+    "template": "wiz-portal-samlidp-sp-register()",
+    "type": "app"
+}

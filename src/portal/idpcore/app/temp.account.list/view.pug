@@ -1,0 +1,169 @@
+div(class="w-full")
+    // 폼 표시 중이면 폼만 보여줌
+    div(*ngIf="showForm")
+        div(class="mb-4")
+            h3(class="text-[15px] font-semibold text-zinc-900")
+                | {{ formMode === 'create' ? '임시 계정 생성' : '임시 계정 편집' }}
+        wiz-portal-idpcore-temp-account-form(
+            [mode]="formMode",
+            [item]="editItem",
+            (onSave)="onFormSave($event)",
+            (onCancel)="onFormCancel()")
+
+    // 목록 모드
+    div(*ngIf="!showForm")
+        // 상단 헤더 + Quick Create
+        div(class="flex flex-col gap-4 mb-6")
+            div(class="flex items-center justify-between")
+                div(class="flex items-center gap-3")
+                    div(class="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600")
+                        svg(class="size-5", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
+                            path(stroke-linecap="round", stroke-linejoin="round", d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z")
+                    div
+                        h3(class="text-lg font-semibold text-zinc-950") 임시 테스트 계정
+                        p(class="text-xs text-zinc-500") 기본 24시간 유효 · 관리자 권한으로 연장/영구 전환 가능
+                div(class="flex items-center gap-2")
+                    button(*ngIf="items.length > 0",
+                        type="button",
+                        class="px-3 py-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors",
+                        (click)="cleanupExpired()") 만료 정리
+                    button(type="button",
+                        class="px-3 py-1.5 text-xs text-zinc-600 bg-white border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors",
+                        (click)="openCreate()") + 직접 생성
+
+            // Security Limits Info
+            div(class="rounded-xl border border-blue-200 bg-blue-50 p-4")
+                div(class="flex items-start gap-3")
+                    svg(class="size-5 shrink-0 text-blue-500 mt-0.5", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
+                        path(stroke-linecap="round", stroke-linejoin="round", d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z")
+                    div
+                        p(class="text-[13px] font-semibold text-blue-800") 보안 제한 안내
+                        div(class="mt-1 flex flex-wrap gap-x-4 gap-y-1")
+                            span(class="text-xs text-blue-700") ⏱ 생성 10회 / 5분
+                            span(class="text-xs text-blue-700") 🕐 기본 24시간 유효
+                            span(class="text-xs text-blue-700") 🗑 삭제 10회 / 5분
+                            span(*ngIf="isAdmin()", class="text-xs text-blue-700") ♾ admin 연장 / 영구 전환 가능
+                        p(class="mt-1 text-xs text-blue-600") 🔒 삭제는 admin 로그인 또는 등록한 IP에서만 가능합니다.
+
+            // Quick Create 카드
+            div(class="rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 p-5")
+                div(class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between")
+                    div
+                        p(class="text-[13px] font-semibold text-zinc-900") Quick Create
+                        p(class="mt-1 text-xs text-zinc-500")
+                            | 클릭 한 번으로 임시 테스트 계정을 즉시 생성합니다.
+                            br
+                            | 아이디: tester_XX00 · 비밀번호: test1234 · SAML 속성은 OID URN으로 저장됩니다.
+                    button(type="button",
+                        [disabled]="creating",
+                        class="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-5 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-50",
+                        (click)="quickCreate()")
+                        svg(*ngIf="!creating", class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="2", stroke="currentColor")
+                            path(stroke-linecap="round", stroke-linejoin="round", d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z")
+                        span(*ngIf="!creating") 즉시 생성
+                        span(*ngIf="creating") 생성 중...
+
+        // 방금 생성된 계정 정보
+        div(*ngIf="lastCreated", class="mb-6 rounded-xl border border-green-200 bg-green-50 p-5")
+            div(class="flex items-start justify-between mb-3")
+                div(class="flex items-center gap-2")
+                    svg(class="size-5 text-green-600", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
+                        path(stroke-linecap="round", stroke-linejoin="round", d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z")
+                    span(class="text-[13px] font-semibold text-green-800") 임시 계정이 생성되었습니다
+                button(type="button",
+                    class="text-green-600 hover:text-green-800 transition-colors",
+                    (click)="dismissCreated()")
+                    svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="2", stroke="currentColor")
+                        path(stroke-linecap="round", stroke-linejoin="round", d="M6 18L18 6M6 6l12 12")
+            div(class="grid grid-cols-1 gap-3 sm:grid-cols-2")
+                div(class="flex items-center gap-2 rounded-lg bg-white border border-green-200 px-3 py-2")
+                    div(class="flex-1 min-w-0")
+                        p(class="text-[11px] font-medium text-zinc-400 uppercase") 아이디
+                        p(class="text-[13px] font-mono font-semibold text-zinc-900 truncate") {{ lastCreated.username }}
+                    button(type="button",
+                        class="shrink-0 p-1 text-zinc-400 hover:text-zinc-600 rounded transition-colors",
+                        (click)="copyText(lastCreated.username)")
+                        svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
+                            path(stroke-linecap="round", stroke-linejoin="round", d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184")
+                div(class="flex items-center gap-2 rounded-lg bg-white border border-green-200 px-3 py-2")
+                    div(class="flex-1 min-w-0")
+                        p(class="text-[11px] font-medium text-zinc-400 uppercase") 비밀번호
+                        p(class="text-[13px] font-mono font-semibold text-zinc-900 truncate") {{ lastCreated.password }}
+                    button(type="button",
+                        class="shrink-0 p-1 text-zinc-400 hover:text-zinc-600 rounded transition-colors",
+                        (click)="copyText(lastCreated.password)")
+                        svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
+                            path(stroke-linecap="round", stroke-linejoin="round", d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184")
+                div(class="flex items-center gap-2 rounded-lg bg-white border border-green-200 px-3 py-2")
+                    div(class="flex-1 min-w-0")
+                        p(class="text-[11px] font-medium text-zinc-400 uppercase") 이메일
+                        p(class="text-[13px] font-mono text-zinc-600 truncate") {{ lastCreated.email }}
+                    button(type="button",
+                        class="shrink-0 p-1 text-zinc-400 hover:text-zinc-600 rounded transition-colors",
+                        (click)="copyText(lastCreated.email)")
+                        svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
+                            path(stroke-linecap="round", stroke-linejoin="round", d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184")
+                div(class="flex items-center gap-2 rounded-lg bg-white border border-green-200 px-3 py-2")
+                    div(class="flex-1 min-w-0")
+                        p(class="text-[11px] font-medium text-zinc-400 uppercase") 만료 시각
+                        p(class="text-[13px] text-zinc-600 truncate") {{ lastCreated.expires }}
+                    div(class="shrink-0 w-6")
+
+        // 로딩
+        div(*ngIf="loading", class="flex items-center justify-center py-12")
+            span(class="text-[13px] text-zinc-400") 로딩 중...
+
+        // 빈 상태
+        div(*ngIf="!loading && items.length === 0", class="flex flex-col items-center justify-center py-12 gap-3")
+            svg(class="size-10 text-zinc-200", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1", stroke="currentColor")
+                path(stroke-linecap="round", stroke-linejoin="round", d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z")
+            span(class="text-[13px] text-zinc-400") 아직 임시 계정이 없습니다.
+            span(class="text-xs text-zinc-400") 위의 Quick Create 버튼으로 즉시 생성해 보세요.
+
+        // 계정 목록 테이블
+        div(*ngIf="!loading && items.length > 0")
+            div(class="flex items-center justify-between mb-3")
+                span(class="text-xs font-medium text-zinc-500") 전체 {{ items.length }}개
+            div(class="border border-zinc-200 rounded-lg overflow-hidden")
+                table(class="w-full")
+                    thead
+                        tr(class="bg-zinc-50 border-b border-zinc-200")
+                            th(class="px-4 py-2.5 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider") 아이디
+                            th(class="px-4 py-2.5 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider") 표시 이름
+                            th(class="px-4 py-2.5 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider") 이메일
+                            th(class="px-4 py-2.5 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider") 상태
+                            th(class="px-4 py-2.5 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider") 남은 시간
+                            th(class="px-4 py-2.5 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider") 작업
+                    tbody
+                        tr(*ngFor="let item of items",
+                            class="border-b border-zinc-100 hover:bg-zinc-50/80 transition-colors",
+                            [class.opacity-50]="isExpired(item)")
+                            td(class="px-4 py-3 text-[13px] font-medium text-zinc-900 font-mono") {{ item.username }}
+                            td(class="px-4 py-3 text-[13px] text-zinc-600") {{ item.display_name || '-' }}
+                            td(class="px-4 py-3 text-[13px] text-zinc-600 font-mono") {{ item.email || '-' }}
+                            td(class="px-4 py-3")
+                                span(*ngIf="!item.expires", class="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-violet-50 text-violet-700 rounded-full") 영구
+                                span(*ngIf="item.expires && !isExpired(item)", class="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-green-50 text-green-700 rounded-full") 활성
+                                span(*ngIf="item.expires && isExpired(item)", class="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700 rounded-full") 만료
+                            td(class="px-4 py-3 text-[13px] text-zinc-500") {{ remainingTime(item) }}
+                            td(class="px-4 py-3 text-right")
+                                div(class="flex items-center justify-end gap-1")
+                                    button(*ngIf="isAdmin() && item.expires",
+                                        type="button",
+                                        class="px-2 py-1 text-xs text-sky-600 hover:bg-sky-50 rounded transition-colors",
+                                        (click)="extendValidity(item)") +24h
+                                    button(*ngIf="isAdmin() && item.expires",
+                                        type="button",
+                                        class="px-2 py-1 text-xs text-violet-600 hover:bg-violet-50 rounded transition-colors",
+                                        (click)="setUnlimited(item)") 무기한
+                                    button(type="button",
+                                        class="px-2 py-1 text-xs text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors",
+                                        (click)="openEdit(item)",
+                                        [disabled]="isExpired(item)") 편집
+                                    button(*ngIf="item.can_delete",
+                                        type="button",
+                                        class="px-2 py-1 text-xs text-zinc-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors",
+                                        (click)="deleteItem(item)") 삭제
+                                    span(*ngIf="!item.can_delete",
+                                        class="px-2 py-1 text-xs text-zinc-300",
+                                        title="삭제 권한 없음 (admin 로그인 또는 등록 IP에서만 삭제 가능)") 🔒

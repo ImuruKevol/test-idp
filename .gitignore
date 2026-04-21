@@ -7,6 +7,9 @@ node_modules/
 /test/
 package-lock.json
 
+metadata/
+data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

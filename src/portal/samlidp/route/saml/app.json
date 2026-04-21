@@ -1,0 +1,8 @@
+{
+    "id": "saml",
+    "title": "SAML API",
+    "route": "/api/saml/<path:path>",
+    "category": "",
+    "viewuri": "",
+    "controller": ""
+}

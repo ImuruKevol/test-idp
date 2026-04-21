@@ -1,0 +1,8 @@
+{
+    "id": "core",
+    "title": "idpcore API",
+    "route": "/api/idpcore/<path:path>",
+    "category": "",
+    "viewuri": "",
+    "controller": ""
+}

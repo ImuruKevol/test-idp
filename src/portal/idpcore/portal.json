@@ -1,0 +1,7 @@
+{
+    "package": "idpcore",
+    "use_app": true,
+    "use_controller": false,
+    "use_model": true,
+    "use_route": true
+}

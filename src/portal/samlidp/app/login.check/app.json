@@ -1,0 +1,11 @@
+{
+    "id": "login.check",
+    "mode": "portal",
+    "title": "Login Check",
+    "namespace": "login.check",
+    "category": "editor",
+    "viewuri": "",
+    "controller": "",
+    "template": "wiz-portal-samlidp-login-check()",
+    "type": "app"
+}

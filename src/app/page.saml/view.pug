@@ -1,0 +1,27 @@
+section(class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8")
+    div(class="overflow-hidden rounded-[2rem] border border-orange-200 bg-[linear-gradient(135deg,_#fff7ed_0%,_#ffffff_55%,_#ffedd5_100%)] p-8 shadow-sm")
+        div(class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between")
+            div(class="max-w-3xl")
+                p(class="text-xs font-semibold uppercase tracking-[0.24em] text-orange-600") SAML Identity Provider
+                h1(class="mt-3 text-3xl font-semibold tracking-tight text-zinc-950") SP 등록, IdP 메타데이터 배포, SSO·SLO 검증
+                p(class="mt-3 text-[14px] leading-7 text-zinc-600")
+                    | SP 메타데이터를 등록하고 IdP 메타데이터를 배포한 뒤, AuthnRequest 수신과 SAMLResponse 발급을 검증합니다.
+            div(class="flex flex-wrap gap-2")
+                a(routerLink="/saml/register", [class]="tabClass('register')") Register SP
+                a(routerLink="/saml/publish", [class]="tabClass('publish')") Publish Metadata
+                a(routerLink="/saml/logincheck", [class]="tabClass('logincheck')") Login Check
+                a(routerLink="/saml/logoutcheck", [class]="tabClass('logoutcheck')") Logout Check
+
+    // Tab Content
+    div(class="rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm")
+        div(*ngIf="isTab('register')")
+            wiz-portal-samlidp-sp-register
+
+        div(*ngIf="isTab('publish')")
+            wiz-portal-samlidp-idp-metadata
+
+        div(*ngIf="isTab('logincheck')")
+            wiz-portal-samlidp-login-check
+
+        div(*ngIf="isTab('logoutcheck')")
+            wiz-portal-samlidp-logout-check

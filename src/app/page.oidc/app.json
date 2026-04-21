@@ -1,0 +1,11 @@
+{
+    "mode": "page",
+    "id": "page.oidc",
+    "title": "/oidc/:tab?",
+    "namespace": "oidc",
+    "viewuri": "/oidc/:tab?",
+    "category": "",
+    "controller": "base",
+    "layout": "layout.topnav",
+    "template": "wiz-page-oidc()"
+}

@@ -1,0 +1,10 @@
+{
+    "mode": "layout",
+    "id": "layout.topnav",
+    "title": "topnav",
+    "namespace": "topnav",
+    "viewuri": "",
+    "category": "theme",
+    "controller": "base",
+    "template": "wiz-layout-topnav()"
+}

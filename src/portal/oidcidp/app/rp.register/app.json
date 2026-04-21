@@ -1,0 +1,11 @@
+{
+    "id": "rp.register",
+    "mode": "portal",
+    "title": "RP Register",
+    "namespace": "rp.register",
+    "category": "editor",
+    "viewuri": "",
+    "controller": "",
+    "template": "wiz-portal-oidcidp-rp-register()",
+    "type": "app"
+}

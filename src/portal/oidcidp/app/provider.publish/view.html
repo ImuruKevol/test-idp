@@ -1,0 +1,162 @@
+<div class='space-y-6'>
+	<div class='flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between'>
+		<div>
+			<p class='text-xs font-semibold uppercase tracking-[0.24em] text-sky-700'>Discovery &amp; JWKS</p>
+			<h2 class='mt-2 text-lg font-semibold text-zinc-950'>RP에 넘길 Provider 메타데이터와 서명 키 게시 값</h2>
+			<p class='mt-2 text-[13px] leading-6 text-zinc-600'>OIDC discovery document, JWKS, 지원 scope/claim 계약을 운영 콘솔 형태로 정리합니다.</p>
+		</div>
+		<button class='inline-flex items-center justify-center rounded-xl border border-zinc-300 px-4 py-2 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-50' (click)='loadInfo()'>새로고침</button>
+	</div>
+
+	<div *ngIf='loading' class='flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-16'>
+		<span class='text-[13px] text-zinc-400'>로딩 중...</span>
+	</div>
+
+	<div *ngIf='!loading' class='space-y-6'>
+		<div class='grid gap-3 md:grid-cols-4'>
+			<div class='rounded-2xl border border-sky-100 bg-sky-50 p-4'>
+				<div class='flex items-center justify-between gap-3'>
+					<p class='text-xs font-semibold uppercase tracking-wide text-sky-700'>Issuer</p>
+					<div class='flex items-center gap-2'>
+						<span *ngIf='copied === "issuer"' class='text-[11px] text-sky-600'>복사됨</span>
+						<button class='rounded-lg px-2.5 py-1 text-[11px] font-medium text-sky-700 ring-1 ring-sky-200 transition hover:bg-white/70' (click)='copyText(provider?.issuer || "", "issuer")'>복사</button>
+					</div>
+				</div>
+				<p class='mt-2 break-all text-[13px] font-medium text-zinc-950'>{{ provider?.issuer }}</p>
+			</div>
+			<div class='rounded-2xl border border-zinc-200 bg-white p-4'>
+				<div class='flex items-center justify-between gap-3'>
+					<p class='text-xs font-semibold uppercase tracking-wide text-zinc-500'>Discovery</p>
+					<div class='flex items-center gap-2'>
+						<span *ngIf='copied === "discovery-endpoint"' class='text-[11px] text-sky-600'>복사됨</span>
+						<button class='rounded-lg px-2.5 py-1 text-[11px] font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(provider?.discovery_endpoint || "", "discovery-endpoint")'>복사</button>
+					</div>
+				</div>
+				<p class='mt-2 break-all text-[13px] text-zinc-900'>{{ provider?.discovery_endpoint }}</p>
+			</div>
+			<div class='rounded-2xl border border-zinc-200 bg-white p-4'>
+				<div class='flex items-center justify-between gap-3'>
+					<p class='text-xs font-semibold uppercase tracking-wide text-zinc-500'>JWKS URI</p>
+					<div class='flex items-center gap-2'>
+						<span *ngIf='copied === "jwks-uri"' class='text-[11px] text-sky-600'>복사됨</span>
+						<button class='rounded-lg px-2.5 py-1 text-[11px] font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(provider?.jwks_uri || "", "jwks-uri")'>복사</button>
+					</div>
+				</div>
+				<p class='mt-2 break-all text-[13px] text-zinc-900'>{{ provider?.jwks_uri }}</p>
+			</div>
+			<div class='rounded-2xl border border-zinc-200 bg-white p-4'>
+				<p class='text-xs font-semibold uppercase tracking-wide text-zinc-500'>Registered RPs</p>
+				<p class='mt-2 text-2xl font-semibold text-zinc-950'>{{ clientCount }}</p>
+			</div>
+		</div>
+
+		<div class='grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_22rem]'>
+			<div class='space-y-5'>
+				<div class='rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+					<div class='flex items-center justify-between gap-3'>
+						<div>
+							<h3 class='text-[15px] font-semibold text-zinc-950'>OpenID Provider Metadata</h3>
+							<p class='mt-1 text-xs text-zinc-500'>RP에서 well-known endpoint를 호출했을 때 기대하는 문서 구조입니다.</p>
+						</div>
+						<div class='flex items-center gap-2'>
+							<span *ngIf='copied === "discovery"' class='text-[11px] text-sky-600'>복사됨</span>
+							<button class='rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(stringify(discovery), "discovery")'>복사</button>
+							<button class='rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='downloadText("openid-configuration.json", stringify(discovery))'>다운로드</button>
+						</div>
+					</div>
+					<pre class='mt-4 max-h-[28rem] overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ stringify(discovery) }}</pre>
+				</div>
+
+				<div class='rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+					<div class='flex items-center justify-between gap-3'>
+						<div>
+							<h3 class='text-[15px] font-semibold text-zinc-950'>JWKS</h3>
+							<p class='mt-1 text-xs text-zinc-500'>id_token 서명용 공개키 셋입니다. kid 값은 RP 디버깅 때 그대로 사용됩니다.</p>
+						</div>
+						<div class='flex items-center gap-2'>
+							<span *ngIf='copied === "jwks"' class='text-[11px] text-sky-600'>복사됨</span>
+							<button class='rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(stringify(jwks), "jwks")'>복사</button>
+							<button class='rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='downloadText("jwks_public.json", stringify(jwks))'>다운로드</button>
+						</div>
+					</div>
+					<pre class='mt-4 max-h-[24rem] overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ stringify(jwks) }}</pre>
+				</div>
+			</div>
+
+			<aside class='space-y-4 rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+				<div>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>Endpoint Contract</h3>
+					<div class='mt-4 space-y-3 text-[13px] text-zinc-600'>
+						<div>
+							<div class='flex items-center justify-between gap-3'>
+								<p class='font-medium text-zinc-900'>Authorization</p>
+								<div class='flex items-center gap-2'>
+									<span *ngIf='copied === "authorization-endpoint"' class='text-[11px] text-sky-600'>복사됨</span>
+									<button class='rounded-lg px-2.5 py-1 text-[11px] font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(provider?.authorization_endpoint || "", "authorization-endpoint")'>복사</button>
+								</div>
+							</div>
+							<p class='mt-1 break-all'>{{ provider?.authorization_endpoint }}</p>
+						</div>
+						<div>
+							<div class='flex items-center justify-between gap-3'>
+								<p class='font-medium text-zinc-900'>Token</p>
+								<div class='flex items-center gap-2'>
+									<span *ngIf='copied === "token-endpoint"' class='text-[11px] text-sky-600'>복사됨</span>
+									<button class='rounded-lg px-2.5 py-1 text-[11px] font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(provider?.token_endpoint || "", "token-endpoint")'>복사</button>
+								</div>
+							</div>
+							<p class='mt-1 break-all'>{{ provider?.token_endpoint }}</p>
+						</div>
+						<div>
+							<div class='flex items-center justify-between gap-3'>
+								<p class='font-medium text-zinc-900'>Userinfo</p>
+								<div class='flex items-center gap-2'>
+									<span *ngIf='copied === "userinfo-endpoint"' class='text-[11px] text-sky-600'>복사됨</span>
+									<button class='rounded-lg px-2.5 py-1 text-[11px] font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(provider?.userinfo_endpoint || "", "userinfo-endpoint")'>복사</button>
+								</div>
+							</div>
+							<p class='mt-1 break-all'>{{ provider?.userinfo_endpoint }}</p>
+						</div>
+						<div>
+							<div class='flex items-center justify-between gap-3'>
+								<p class='font-medium text-zinc-900'>End Session</p>
+								<div class='flex items-center gap-2'>
+									<span *ngIf='copied === "end-session-endpoint"' class='text-[11px] text-sky-600'>복사됨</span>
+									<button class='rounded-lg px-2.5 py-1 text-[11px] font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(provider?.end_session_endpoint || "", "end-session-endpoint")'>복사</button>
+								</div>
+							</div>
+							<p class='mt-1 break-all'>{{ provider?.end_session_endpoint }}</p>
+						</div>
+					</div>
+				</div>
+
+				<div>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>지원 계약</h3>
+					<div class='mt-3 flex flex-wrap gap-2'>
+						<span *ngFor='let value of provider?.scopes_supported' class='rounded-full bg-sky-50 px-2.5 py-1 text-xs text-sky-700'>{{ value }}</span>
+					</div>
+					<div class='mt-3 flex flex-wrap gap-2'>
+						<span *ngFor='let value of provider?.claims_supported' class='rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600'>{{ value }}</span>
+					</div>
+				</div>
+
+				<div>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>최근 RP</h3>
+					<div *ngIf='clients.length === 0' class='mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-[13px] text-zinc-500'>등록된 RP가 없습니다.</div>
+					<div *ngIf='clients.length > 0' class='mt-3 space-y-3'>
+						<div *ngFor='let client of clients' class='rounded-2xl border border-zinc-200 bg-zinc-50 p-4'>
+							<div class='flex items-center justify-between gap-3'>
+								<p class='truncate text-[13px] font-semibold text-zinc-900'>{{ client.client_name }}</p>
+								<div class='flex items-center gap-2'>
+									<span *ngIf='copied === ("client-" + client.client_id)' class='text-[11px] text-sky-600'>복사됨</span>
+									<button class='rounded-lg px-2.5 py-1 text-[11px] font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-white' (click)='copyText(client.client_id || "", "client-" + client.client_id)'>복사</button>
+								</div>
+							</div>
+							<p class='mt-1 break-all font-mono text-[11px] text-zinc-500'>{{ client.client_id }}</p>
+						</div>
+					</div>
+				</div>
+			</aside>
+		</div>
+	</div>
+</div>

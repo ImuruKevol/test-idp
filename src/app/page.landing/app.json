@@ -1,0 +1,12 @@
+{
+    "mode": "page",
+    "id": "page.landing",
+    "title": "/",
+    "namespace": "landing",
+    "viewuri": "/",
+    "category": "",
+    "controller": "base",
+    "layout": "layout.topnav",
+    "template": "wiz-page-landing()",
+    "preview": ""
+}

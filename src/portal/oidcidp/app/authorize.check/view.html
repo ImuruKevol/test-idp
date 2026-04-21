@@ -1,0 +1,274 @@
+<div class='space-y-6'>
+	<div *ngIf='loading' class='flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-16'>
+		<span class='text-[13px] text-zinc-400'>로딩 중...</span>
+	</div>
+
+	<div *ngIf='!loading && mode === "compose"' class='space-y-5'>
+		<div class='flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between'>
+			<div>
+				<p class='text-xs font-semibold uppercase tracking-[0.24em] text-sky-700'>Authorize Check</p>
+				<h2 class='mt-2 text-lg font-semibold text-zinc-950'>authorize 요청, consent 결과, token preview를 한 번에 점검</h2>
+				<p class='mt-2 text-[13px] leading-6 text-zinc-600'>response_type code는 실제 authorization code + PKCE 흐름으로 검증하고, 나머지 조합은 시뮬레이션으로 redirect 결과를 확인합니다.</p>
+			</div>
+			<div class='flex items-center gap-2'>
+				<button class='rounded-xl border border-zinc-300 px-4 py-2 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-50' (click)='quickCreateUser()'>{{ quickCreating ? '계정 생성 중...' : '임시 사용자 빠른 생성' }}</button>
+				<button class='rounded-xl bg-sky-600 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-sky-700 disabled:opacity-50' [disabled]='submitting || clients.length === 0 || users.length === 0' (click)='simulate()'>{{ submitting ? '실행 중...' : 'Authorize 시뮬레이션' }}</button>
+			</div>
+		</div>
+
+		<div *ngIf='clients.length === 0' class='rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-6 py-16 text-center'>
+			<p class='text-[13px] font-medium text-zinc-600'>먼저 Register RP 탭에서 RP를 하나 이상 등록해주세요.</p>
+		</div>
+
+		<div *ngIf='clients.length > 0' class='grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_22rem]'>
+			<div class='space-y-5 rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+				<div class='grid gap-4 md:grid-cols-2'>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>Target RP</label>
+						<select class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.client_id' (ngModelChange)='onClientChange()'>
+							<option *ngFor='let client of clients' [value]='client.client_id'>{{ client.client_name }} ({{ client.client_id }})</option>
+						</select>
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>Test User</label>
+						<select class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.user_id' (ngModelChange)='service.render()'>
+							<option *ngFor='let user of users' [value]='user.id'>{{ user.username }} ({{ user.display_name || user.email }})</option>
+						</select>
+					</div>
+					<div class='md:col-span-2'>
+						<label class='text-[13px] font-medium text-zinc-700'>Redirect URI</label>
+						<select class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.redirect_uri' (ngModelChange)='service.render()'>
+							<option *ngFor='let uri of selectedClient()?.redirect_uris' [value]='uri'>{{ uri }}</option>
+						</select>
+					</div>
+				</div>
+
+				<div class='grid gap-4 md:grid-cols-3'>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>Response Type</label>
+						<select class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.response_type' (ngModelChange)='service.render()'>
+							<option *ngFor='let value of options.response_types' [value]='value'>{{ value }}</option>
+						</select>
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>Response Mode</label>
+						<select class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.response_mode' (ngModelChange)='service.render()'>
+							<option value=''>기본값</option>
+							<option *ngFor='let value of options.response_modes' [value]='value'>{{ value }}</option>
+						</select>
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>Claim Preset</label>
+						<select class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.preset_id' (ngModelChange)='service.render()'>
+							<option value=''>기본 사용자 claim</option>
+							<option *ngFor='let preset of presets' [value]='preset.id'>{{ preset.name }}</option>
+						</select>
+					</div>
+				</div>
+
+				<div>
+					<label class='text-[13px] font-medium text-zinc-700'>Scopes</label>
+					<div class='mt-2 flex flex-wrap gap-2'>
+						<button type='button' class='inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold' [class]='isScopeSelected("openid") ? "bg-sky-600 text-white" : "bg-white text-zinc-600 ring-1 ring-zinc-200"' (click)='toggleScope("openid")'>openid</button>
+						<button type='button' class='inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold' [class]='isScopeSelected("profile") ? "bg-sky-600 text-white" : "bg-white text-zinc-600 ring-1 ring-zinc-200"' (click)='toggleScope("profile")'>profile</button>
+						<button type='button' class='inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold' [class]='isScopeSelected("email") ? "bg-sky-600 text-white" : "bg-white text-zinc-600 ring-1 ring-zinc-200"' (click)='toggleScope("email")'>email</button>
+						<button type='button' class='inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold' [class]='isScopeSelected("groups") ? "bg-sky-600 text-white" : "bg-white text-zinc-600 ring-1 ring-zinc-200"' (click)='toggleScope("groups")'>groups</button>
+						<button type='button' class='inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold' [class]='isScopeSelected("offline_access") ? "bg-sky-600 text-white" : "bg-white text-zinc-600 ring-1 ring-zinc-200"' (click)='toggleScope("offline_access")'>offline_access</button>
+					</div>
+					<input class='mt-3 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.scope' (ngModelChange)='service.render()' placeholder='openid profile email' />
+				</div>
+
+				<div class='grid gap-4 md:grid-cols-2'>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>State</label>
+						<input class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.state' (ngModelChange)='service.render()' placeholder='state_demo' />
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>Nonce</label>
+						<input class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.nonce' (ngModelChange)='service.render()' placeholder='nonce_demo' />
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>Prompt</label>
+						<input class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.prompt' (ngModelChange)='service.render()' placeholder='login consent' />
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>max_age</label>
+						<input class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.max_age' (ngModelChange)='service.render()' placeholder='300' />
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>acr_values</label>
+						<input class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.acr_values' (ngModelChange)='service.render()' placeholder='urn:test-idp:loa:1' />
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>Error Mode</label>
+						<select class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.error_mode' (ngModelChange)='service.render()'>
+							<option *ngFor='let value of options.error_modes' [value]='value'>{{ value || '정상 응답' }}</option>
+						</select>
+					</div>
+				</div>
+
+				<div class='grid gap-4 md:grid-cols-[minmax(0,1fr)_10rem]'>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>code_challenge</label>
+						<input class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.code_challenge' (ngModelChange)='service.render()' placeholder='S256 challenge string' />
+					</div>
+					<div>
+						<label class='text-[13px] font-medium text-zinc-700'>PKCE Method</label>
+						<select class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.code_challenge_method' (ngModelChange)='syncPkceFromVerifier()'>
+							<option *ngFor='let value of options.code_challenge_methods' [value]='value'>{{ value }}</option>
+						</select>
+					</div>
+					<div class='md:col-span-2'>
+						<div class='flex items-center justify-between gap-3'>
+							<label class='text-[13px] font-medium text-zinc-700'>code_verifier</label>
+							<button class='rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='generatePkce()'>PKCE 생성</button>
+						</div>
+						<input class='mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2 font-mono text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.code_verifier' (ngModelChange)='syncPkceFromVerifier()' placeholder='token endpoint에서 사용할 code_verifier' />
+					</div>
+				</div>
+
+				<div>
+					<label class='text-[13px] font-medium text-zinc-700'>Claims Parameter (JSON)</label>
+					<textarea class='mt-1 min-h-[128px] w-full rounded-xl border border-zinc-300 px-3 py-2 font-mono text-xs text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.claims' (ngModelChange)='service.render()' placeholder='{"userinfo":{"department":{"essential":true}},"id_token":{"email":null}}'></textarea>
+				</div>
+			</div>
+
+			<aside class='space-y-4 rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+				<div>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>Provider Contract</h3>
+					<p class='mt-3 break-all text-[13px] text-zinc-700'>{{ provider?.authorization_endpoint }}</p>
+					<p class='mt-2 break-all text-xs text-zinc-500'>redirect 결과는 선택한 response_mode에 따라 query, fragment, form_post로 정리됩니다.</p>
+				</div>
+				<div>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>Recent Simulations</h3>
+					<div *ngIf='history.length === 0' class='mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-[13px] text-zinc-500'>아직 이력 없음</div>
+					<div *ngIf='history.length > 0' class='mt-3 space-y-3'>
+						<div *ngFor='let item of history' class='rounded-2xl border border-zinc-200 bg-zinc-50 p-4'>
+							<div class='flex items-center justify-between gap-2'>
+								<p class='truncate text-[13px] font-semibold text-zinc-900'>{{ item.summary?.client_name || item.summary?.client_id }}</p>
+								<span class='rounded-full px-2 py-0.5 text-[11px] font-semibold' [class]='item.summary?.status === "error" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"'>{{ item.summary?.status || 'success' }}</span>
+							</div>
+							<p class='mt-1 text-xs text-zinc-500'>{{ item.summary?.response_type }} · {{ item.summary?.scope }}</p>
+							<p class='mt-2 text-[11px] text-zinc-400'>{{ item.created }}</p>
+						</div>
+					</div>
+				</div>
+			</aside>
+		</div>
+	</div>
+
+	<div *ngIf='!loading && mode === "result" && result' class='space-y-5'>
+		<div class='flex items-center justify-between gap-3'>
+			<div class='flex items-center gap-3'>
+				<button class='rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700' (click)='showCompose()'>
+					<svg class='size-4' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' d='M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18' /></svg>
+				</button>
+				<div>
+					<h2 class='text-lg font-semibold text-zinc-950'>Authorize 결과</h2>
+					<p class='text-[13px] text-zinc-500'>redirect payload, token preview, userinfo 릴리즈 결과를 확인합니다.</p>
+				</div>
+			</div>
+			<div class='flex flex-wrap gap-2'>
+				<button class='rounded-xl border border-zinc-300 px-4 py-2 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-50' (click)='copyText(result.raw_authorize_url)'>authorize URL 복사</button>
+				<button *ngIf='result.debug_raw_url' class='rounded-xl border border-zinc-300 px-4 py-2 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-50' (click)='copyText(result.debug_raw_url)'>debug raw URL 복사</button>
+			</div>
+		</div>
+
+		<div class='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+			<div class='rounded-2xl border border-zinc-200 bg-white p-4'>
+				<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Response Type</p>
+				<p class='mt-2 text-[13px] font-medium text-zinc-900'>{{ result.request?.response_type }}</p>
+			</div>
+			<div class='rounded-2xl border border-zinc-200 bg-white p-4'>
+				<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Redirect Mode</p>
+				<p class='mt-2 text-[13px] font-medium text-zinc-900'>{{ result.redirect_mode }}</p>
+			</div>
+			<div class='rounded-2xl border border-zinc-200 bg-white p-4'>
+				<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Authorization Code</p>
+				<p class='mt-2 break-all font-mono text-[13px] text-zinc-900'>{{ result.authorization_code || '(none)' }}</p>
+			</div>
+			<div class='rounded-2xl border border-zinc-200 bg-white p-4'>
+				<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Debug Raw</p>
+				<p class='mt-2 break-all font-mono text-[13px] text-zinc-900'>{{ result.debug_raw_url || result.history_key }}</p>
+			</div>
+		</div>
+
+		<div class='grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_22rem]'>
+			<div class='space-y-5'>
+				<div class='rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>Redirect Result</h3>
+					<p class='mt-3 break-all text-[13px] leading-6 text-zinc-700'>{{ result.redirect_target }}</p>
+					<div class='mt-4 flex flex-wrap gap-2'>
+						<span *ngFor='let warning of result.warnings' class='rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-700'>{{ warning }}</span>
+					</div>
+					<div *ngIf='result.form_post' class='mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4'>
+						<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Form Post Payload</p>
+						<pre class='mt-3 overflow-auto text-[11px] leading-relaxed text-zinc-700'>{{ stringify(result.form_post) }}</pre>
+					</div>
+				</div>
+
+				<div class='rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>Consent Summary</h3>
+					<div class='mt-4 grid gap-4 md:grid-cols-3'>
+						<div>
+							<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Requested Scope</p>
+							<div class='mt-2 flex flex-wrap gap-2'>
+								<span *ngFor='let value of result.consent?.requested_scopes' class='rounded-full bg-sky-50 px-2.5 py-1 text-xs text-sky-700'>{{ value }}</span>
+							</div>
+						</div>
+						<div>
+							<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Released Claims</p>
+							<div class='mt-2 flex flex-wrap gap-2'>
+								<span *ngFor='let value of result.consent?.released_claims' class='rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700'>{{ value }}</span>
+							</div>
+						</div>
+						<div>
+							<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Missing Claims</p>
+							<div class='mt-2 flex flex-wrap gap-2'>
+								<span *ngFor='let value of result.consent?.missing_claims' class='rounded-full bg-rose-50 px-2.5 py-1 text-xs text-rose-700'>{{ value }}</span>
+								<span *ngIf='!result.consent?.missing_claims?.length' class='text-[13px] text-zinc-400'>없음</span>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div class='rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+					<div class='flex items-center justify-between gap-3'>
+						<h3 class='text-[15px] font-semibold text-zinc-950'>Token Preview</h3>
+						<button class='rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(result.id_token)'>id_token 복사</button>
+					</div>
+					<pre *ngIf='result.token_request' class='mt-4 max-h-40 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ stringify(result.token_request) }}</pre>
+					<pre class='mt-4 max-h-40 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ stringify(result.token_response) }}</pre>
+					<pre class='mt-4 max-h-40 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ result.id_token }}</pre>
+				</div>
+
+				<div class='grid gap-5 xl:grid-cols-2'>
+					<div class='rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+						<h3 class='text-[15px] font-semibold text-zinc-950'>userinfo</h3>
+						<pre class='mt-4 max-h-80 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ stringify(result.userinfo) }}</pre>
+					</div>
+					<div class='rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+						<h3 class='text-[15px] font-semibold text-zinc-950'>Decoded id_token</h3>
+						<pre class='mt-4 max-h-80 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ stringify(result.id_token_payload) }}</pre>
+					</div>
+					<div *ngIf='result.access_token_payload' class='rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm xl:col-span-2'>
+						<h3 class='text-[15px] font-semibold text-zinc-950'>Decoded access_token</h3>
+						<pre class='mt-4 max-h-80 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ stringify(result.access_token_payload) }}</pre>
+					</div>
+				</div>
+			</div>
+
+			<aside class='space-y-4 rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+				<div>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>Raw Request</h3>
+					<pre class='mt-4 max-h-64 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-[11px] leading-relaxed text-zinc-700'>{{ stringify(result.request) }}</pre>
+				</div>
+				<div>
+					<h3 class='text-[15px] font-semibold text-zinc-950'>Client / User</h3>
+					<p class='mt-3 text-[13px] text-zinc-700'>{{ result.client?.client_name }}</p>
+					<p class='mt-1 text-xs text-zinc-500'>{{ result.user?.username }} / {{ result.user?.email }}</p>
+				</div>
+			</aside>
+		</div>
+	</div>
+</div>

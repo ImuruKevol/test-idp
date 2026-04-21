@@ -1,0 +1,11 @@
+{
+    "id": "idp.metadata",
+    "mode": "portal",
+    "title": "IdP Metadata",
+    "namespace": "idp.metadata",
+    "category": "editor",
+    "viewuri": "",
+    "controller": "",
+    "template": "wiz-portal-samlidp-idp-metadata()",
+    "type": "app"
+}

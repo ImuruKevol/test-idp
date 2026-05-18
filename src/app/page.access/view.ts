@@ -10,6 +10,7 @@ export class Component implements OnInit {
         username: '',
         password: ''
     };
+    public loggingIn: boolean = false;
 
     public async ngOnInit() {
         await this.service.init();
@@ -29,6 +30,8 @@ export class Component implements OnInit {
     }
 
     public async login() {
+        if (this.loggingIn) return;
+
         let user = JSON.parse(JSON.stringify(this.data));
         if (!user.username) {
             await this.alert("사용자명을 입력해주세요.");
@@ -39,13 +42,23 @@ export class Component implements OnInit {
             return;
         }
 
-        let { code, data } = await wiz.call("login", user);
+        this.loggingIn = true;
+        await this.service.render();
 
-        if (code == 200) {
-            location.href = "/";
+        try {
+            let { code, data } = await wiz.call("login", user);
+
+            if (code == 200) {
+                location.href = "/";
+                await this.service.render();
+            } else {
+                await this.alert(data.message || "로그인에 실패했습니다.", 'error');
+            }
+        } catch (e: any) {
+            await this.alert(e.message || "로그인 중 오류가 발생했습니다.", 'error');
+        } finally {
+            this.loggingIn = false;
             await this.service.render();
-        } else {
-            await this.alert(data.message || "로그인에 실패했습니다.", 'error');
         }
     }
 }

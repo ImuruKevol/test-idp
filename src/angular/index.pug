@@ -29,12 +29,18 @@ html(lang="en")
         link(rel="icon" sizes="192x192" href="/assets/brand/icon.ico")
         link(rel="icon" sizes="57x57" href="/assets/brand/icon.ico")
 
-        link(rel="manifest" href="/manifest.json")
+        // link(rel="manifest" href="/manifest.json")
 
         script(type="text/javascript").
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js', {scope: '/'}).then((reg) => {});
             }
+
+        script.
+            window.ReviewOpsSDK = {
+                parentOrigin: 'https://review.season.co.kr'
+            };
+        script(async, src="https://review.season.co.kr/assets/reviewops-sdk.js")
 
     body
         app-root

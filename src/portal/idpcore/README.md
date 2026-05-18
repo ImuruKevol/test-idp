@@ -100,6 +100,7 @@ core.audit.delete(id)
 | `GET /api/idpcore/seed-force` | 샘플 데이터 강제 초기화 (admin only, 기존 admin 비밀번호 유지) |
 | `GET /api/idpcore/users` | 사용자 목록 |
 | `GET /api/idpcore/saml-attribute-catalog` | 표준/커스텀 SAML OID 속성 목록 |
+| `GET /api/idpcore/pysaml2-attribute-catalog` | pysaml2 기본 attribute map 기반 지원 속성 목록 |
 | `GET /api/idpcore/presets?protocol=saml` | 프리셋 목록 (protocol 필터) |
 
 ---
@@ -115,7 +116,8 @@ core.audit.delete(id)
 **SAML**: minimal, eduPerson-basic, eduPerson-full, custom-json  
 **OIDC**: openid-basic, profile, email, groups, academic-profile
 
-SAML preset과 사용자 `saml_attributes`는 저장 시 OID URN 키로 정규화된다. friendly name(`uid`, `mail`, `displayName`)이나 임의 커스텀 키를 넣어도 응답 생성 전 공통 카탈로그 기준으로 OID 형식으로 변환된다.
+임시 계정 생성 시 test-idp 표준 SAML Attribute와 대응 OIDC Claim이 기본값으로 채워진다.
+SAML preset과 사용자 `saml_attributes`는 저장 시 표준 OID URN 또는 pysaml2 attribute map의 Name으로 정규화된다. friendly name(`uid`, `mail`, `displayName`)이나 임의 커스텀 키를 넣어도 응답 생성 전 공통 카탈로그 기준으로 변환된다.
 
 ---
 

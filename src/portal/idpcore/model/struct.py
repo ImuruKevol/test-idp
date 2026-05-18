@@ -1,10 +1,42 @@
 import datetime
 import hashlib
+import importlib
 import json
 import re
 
 
 SAML_PRIVATE_OID_BASE = "1.3.6.1.4.1.55555.100"
+SAML_URI_NAME_FORMAT = "urn:oasis:names:tc:SAML:2.0:attrname-format:uri"
+PYSAML2_ATTRIBUTE_MAP_MODULES = [
+    "saml2.attributemaps.saml_uri",
+    "saml2.attributemaps.basic",
+    "saml2.attributemaps.shibboleth_uri",
+    "saml2.attributemaps.adfs_v20",
+    "saml2.attributemaps.adfs_v1x",
+]
+OIDC_CLAIM_ALIASES = {
+    "uid": "preferred_username",
+    "userid": "preferred_username",
+    "username": "preferred_username",
+    "mail": "email",
+    "email": "email",
+    "emailaddress": "email",
+    "displayname": "name",
+    "cn": "name",
+    "commonname": "name",
+    "givenname": "given_name",
+    "firstname": "given_name",
+    "sn": "family_name",
+    "surname": "family_name",
+    "familyname": "family_name",
+    "lastname": "family_name",
+    "departmentnumber": "department",
+    "department": "department",
+    "memberof": "groups",
+    "group": "groups",
+    "groups": "groups",
+    "testidpprofile": "profile",
+}
 SAML_ATTRIBUTE_SPECS = [
     {
         "friendly_name": "uid",
@@ -187,6 +219,9 @@ class Struct:
         for spec in SAML_ATTRIBUTE_SPECS:
             item = dict(spec)
             item["urn"] = f"urn:oid:{item['oid']}"
+            item["name"] = item["urn"]
+            item["name_format"] = SAML_URI_NAME_FORMAT
+            item["oidc_claim_key"] = self.oidc_claim_key_for_saml_attribute(item)
             aliases = []
             for alias in [item.get("friendly_name", "")] + list(item.get("aliases", [])):
                 alias = str(alias or "").strip()
@@ -201,6 +236,142 @@ class Struct:
     def saml_attribute_catalog(self):
         oid_map, _ = self._saml_attribute_catalog_index()
         return [dict(oid_map[key]) for key in oid_map]
+
+    def _normalize_attribute_alias(self, value):
+        return re.sub(r"[^A-Za-z0-9]+", "", str(value or "").strip()).lower()
+
+    def oidc_claim_key_for_saml_attribute(self, attr):
+        aliases = list(attr.get("aliases", []) or [])
+        names = [attr.get("friendly_name", "")] + aliases
+        for name in names:
+            normalized = self._normalize_attribute_alias(name)
+            if normalized in OIDC_CLAIM_ALIASES:
+                return OIDC_CLAIM_ALIASES[normalized]
+
+        friendly_name = str(attr.get("friendly_name", "") or "").strip()
+        if friendly_name:
+            return friendly_name
+        return str(attr.get("name", attr.get("urn", "")) or "").strip()
+
+    def _attribute_example(self, attr):
+        key = self.oidc_claim_key_for_saml_attribute(attr)
+        examples = {
+            "preferred_username": "alice",
+            "email": "alice@test-idp.local",
+            "name": "Alice Example",
+            "given_name": "Alice",
+            "family_name": "Example",
+            "department": "engineering",
+            "groups": ["developers", "testers"],
+            "profile": {"department": "engineering", "groups": ["developers"]},
+        }
+        if key in examples:
+            return examples[key]
+        friendly_name = str(attr.get("friendly_name", "") or "").lower()
+        if "affiliation" in friendly_name:
+            return ["member"]
+        if "entitlement" in friendly_name:
+            return ["urn:test-idp:entitlement:full-access"]
+        if "date" in friendly_name:
+            return "2000-01-01"
+        return "example-value"
+
+    def pysaml2_attribute_catalog(self, strict=True):
+        catalog = {}
+        errors = []
+        for module_name in PYSAML2_ATTRIBUTE_MAP_MODULES:
+            try:
+                module = importlib.import_module(module_name)
+            except Exception as e:
+                errors.append(str(e))
+                continue
+
+            attribute_map = getattr(module, "MAP", {}) or {}
+            name_format = str(attribute_map.get("identifier", "") or SAML_URI_NAME_FORMAT)
+            to_map = attribute_map.get("to", {}) or {}
+            fro_map = attribute_map.get("fro", {}) or {}
+            source = module_name.rsplit(".", 1)[-1]
+
+            for friendly_name, saml_name in to_map.items():
+                friendly_name = str(friendly_name or "").strip()
+                saml_name = str(saml_name or "").strip()
+                if saml_name == "":
+                    continue
+                key = f"{name_format}|{saml_name}"
+                if key not in catalog:
+                    catalog[key] = {
+                        "friendly_name": friendly_name or fro_map.get(saml_name, ""),
+                        "name": saml_name,
+                        "urn": saml_name,
+                        "oid": saml_name[8:] if saml_name.lower().startswith("urn:oid:") else "",
+                        "name_format": name_format,
+                        "aliases": [],
+                        "source": source,
+                        "sources": [],
+                        "description": "pysaml2 attribute map",
+                    }
+                item = catalog[key]
+                if source not in item["sources"]:
+                    item["sources"].append(source)
+                if friendly_name and friendly_name not in item["aliases"]:
+                    item["aliases"].append(friendly_name)
+
+            for saml_name, friendly_name in fro_map.items():
+                saml_name = str(saml_name or "").strip()
+                friendly_name = str(friendly_name or "").strip()
+                if saml_name == "":
+                    continue
+                key = f"{name_format}|{saml_name}"
+                if key not in catalog:
+                    catalog[key] = {
+                        "friendly_name": friendly_name,
+                        "name": saml_name,
+                        "urn": saml_name,
+                        "oid": saml_name[8:] if saml_name.lower().startswith("urn:oid:") else "",
+                        "name_format": name_format,
+                        "aliases": [],
+                        "source": source,
+                        "sources": [],
+                        "description": "pysaml2 attribute map",
+                    }
+                item = catalog[key]
+                if source not in item["sources"]:
+                    item["sources"].append(source)
+                if friendly_name and friendly_name not in item["aliases"]:
+                    item["aliases"].append(friendly_name)
+
+        if not catalog and strict:
+            raise Exception("pysaml2 attribute map을 불러올 수 없습니다: " + "; ".join(errors))
+
+        items = []
+        for item in catalog.values():
+            aliases = []
+            for alias in [item.get("friendly_name", "")] + list(item.get("aliases", [])):
+                alias = str(alias or "").strip()
+                if alias and alias not in aliases:
+                    aliases.append(alias)
+            item["aliases"] = aliases
+            item["oidc_claim_key"] = self.oidc_claim_key_for_saml_attribute(item)
+            item["example"] = self._attribute_example(item)
+            items.append(item)
+
+        return sorted(items, key=lambda x: (
+            str(x.get("friendly_name", "") or "").lower(),
+            str(x.get("name", "") or "").lower(),
+        ))
+
+    def _pysaml2_attribute_catalog_index(self):
+        name_map = {}
+        alias_map = {}
+        for item in self.pysaml2_attribute_catalog(strict=False):
+            name = str(item.get("name", "") or "").strip()
+            if name:
+                name_map[name] = item
+            for alias in item.get("aliases", []) or []:
+                alias = str(alias or "").strip()
+                if alias:
+                    alias_map[alias.lower()] = item
+        return name_map, alias_map
 
     def _sanitize_saml_friendly_name(self, value):
         friendly_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "").strip())
@@ -219,6 +390,8 @@ class Struct:
             "friendly_name": friendly_name,
             "oid": oid,
             "urn": f"urn:oid:{oid}",
+            "name": f"urn:oid:{oid}",
+            "name_format": SAML_URI_NAME_FORMAT,
             "aliases": [friendly_name],
             "description": "test-idp custom attribute",
             "example": "custom-value",
@@ -231,16 +404,21 @@ class Struct:
             return None
 
         oid_map, alias_map = self._saml_attribute_catalog_index()
+        pysaml2_name_map, pysaml2_alias_map = self._pysaml2_attribute_catalog_index()
         lowered = value.lower()
 
         if lowered.startswith("urn:oid:"):
             oid = value[8:].strip()
             if oid in oid_map:
                 return dict(oid_map[oid])
+            if value in pysaml2_name_map:
+                return dict(pysaml2_name_map[value])
             return {
                 "friendly_name": "",
                 "oid": oid,
                 "urn": f"urn:oid:{oid}",
+                "name": f"urn:oid:{oid}",
+                "name_format": SAML_URI_NAME_FORMAT,
                 "aliases": [value],
                 "description": "OID attribute",
             }
@@ -252,12 +430,20 @@ class Struct:
                 "friendly_name": "",
                 "oid": value,
                 "urn": f"urn:oid:{value}",
+                "name": f"urn:oid:{value}",
+                "name_format": SAML_URI_NAME_FORMAT,
                 "aliases": [value],
                 "description": "OID attribute",
             }
 
         if lowered in alias_map:
             return dict(alias_map[lowered])
+
+        if value in pysaml2_name_map:
+            return dict(pysaml2_name_map[value])
+
+        if lowered in pysaml2_alias_map:
+            return dict(pysaml2_alias_map[lowered])
 
         if allow_custom is False:
             return None
@@ -282,6 +468,73 @@ class Struct:
         if attributes:
             payload["attributes"] = self.normalize_saml_attributes(attributes)
         return payload
+
+    def default_temporary_profile(self, data):
+        profile = self.normalize_object(data.get("profile"), {})
+        if not profile.get("department"):
+            profile["department"] = "testing"
+        if not profile.get("groups"):
+            profile["groups"] = ["testers"]
+        if not profile.get("organization"):
+            profile["organization"] = "Test IDP"
+        return profile
+
+    def _split_display_name(self, display_name, username):
+        parts = [p for p in str(display_name or "").strip().split(" ") if p]
+        if not parts and username:
+            parts = [username]
+        given_name = parts[0] if parts else "Test"
+        family_name = parts[-1] if len(parts) > 1 else "Tester"
+        return given_name, family_name
+
+    def default_saml_attribute_value(self, spec, data):
+        username = str(data.get("username", "") or "").strip()
+        email = str(data.get("email", "") or "").strip() or (f"{username}@test-idp.local" if username else "")
+        display_name = str(data.get("display_name", "") or "").strip() or username
+        profile = self.default_temporary_profile(data)
+        given_name, family_name = self._split_display_name(display_name, username)
+        friendly_name = str(spec.get("friendly_name", "") or "")
+        normalized = self._normalize_attribute_alias(friendly_name)
+
+        if normalized == "uid":
+            return username
+        if normalized == "mail":
+            return email
+        if normalized in ["displayname", "cn"]:
+            return display_name
+        if normalized == "givenname":
+            return profile.get("given_name") or given_name
+        if normalized == "sn":
+            return profile.get("family_name") or family_name
+        if normalized == "edupersonprincipalname":
+            return email or (f"{username}@test-idp.local" if username else "")
+        if normalized == "edupersonaffiliation":
+            return profile.get("affiliation") or ["member"]
+        if normalized == "edupersonscopedaffiliation":
+            return profile.get("scoped_affiliation") or ["member@test-idp.local"]
+        if normalized == "edupersonentitlement":
+            return profile.get("entitlements") or ["urn:test-idp:entitlement:full-access"]
+        if normalized == "departmentnumber":
+            return profile.get("department", "testing")
+        if normalized == "memberof":
+            return profile.get("groups", ["testers"])
+        if normalized == "testidpprofile":
+            return profile
+        return spec.get("example", "example-value")
+
+    def default_temporary_saml_attributes(self, data):
+        attrs = {}
+        for spec in self.saml_attribute_catalog():
+            attrs[spec["urn"]] = self.default_saml_attribute_value(spec, data)
+        return attrs
+
+    def default_temporary_oidc_claims(self, data):
+        claims = {}
+        for spec in self.saml_attribute_catalog():
+            claim_key = self.oidc_claim_key_for_saml_attribute(spec)
+            if claim_key:
+                claims[claim_key] = self.default_saml_attribute_value(spec, data)
+        return claims
 
     def _normalize_existing_saml_data(self):
         try:

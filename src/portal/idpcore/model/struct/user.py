@@ -93,6 +93,13 @@ class User:
     def create_temporary(self, data, created_by_ip=""):
         item = dict(data)
         item["is_temporary"] = True
+        item["profile"] = self.core.default_temporary_profile(item)
+        default_saml_attributes = self.core.default_temporary_saml_attributes(item)
+        default_oidc_claims = self.core.default_temporary_oidc_claims(item)
+        provided_saml_attributes = self.core.normalize_object(item.get("saml_attributes"), {})
+        provided_oidc_claims = self.core.normalize_object(item.get("oidc_claims"), {})
+        item["saml_attributes"] = {**default_saml_attributes, **provided_saml_attributes}
+        item["oidc_claims"] = {**default_oidc_claims, **provided_oidc_claims}
         ttl_hours = self._get_ttl_hours()
         now_dt = datetime.datetime.now()
         expires_dt = now_dt + datetime.timedelta(hours=ttl_hours)

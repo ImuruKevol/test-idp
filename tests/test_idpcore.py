@@ -62,6 +62,11 @@ class TestIdpcoreUserAPI:
         body = client.assert_ok(resp)
         user = body["data"]["data"]
         assert user["username"] == "pytest_temp_user"
+        assert user["saml_attributes"]["urn:oid:0.9.2342.19200300.100.1.1"] == "pytest_temp_user"
+        assert user["saml_attributes"]["urn:oid:0.9.2342.19200300.100.1.3"] == "pytest_temp@test.local"
+        assert user["oidc_claims"]["preferred_username"] == "pytest_temp_user"
+        assert user["oidc_claims"]["email"] == "pytest_temp@test.local"
+        assert user["oidc_claims"]["groups"] == ["testers"]
         user_id = user["id"]
 
         resp = client.route("/api/idpcore/user-delete", data={"id": user_id}, method="POST")
@@ -117,9 +122,52 @@ class TestIdpcoreUserAPI:
             assert attrs["urn:oid:0.9.2342.19200300.100.1.1"] == "pytest_oid_user"
             assert attrs["urn:oid:0.9.2342.19200300.100.1.3"] == "pytest_oid@test.local"
             assert attrs["urn:oid:1.2.840.113556.1.2.102"] == ["testers"]
-            custom_keys = [key for key in attrs if key.startswith("urn:oid:1.3.6.1.4.1.55555.100.")]
+            custom_keys = [
+                key for key, value in attrs.items()
+                if key.startswith("urn:oid:1.3.6.1.4.1.55555.100.") and value == "enabled"
+            ]
             assert len(custom_keys) == 1
-            assert attrs[custom_keys[0]] == "enabled"
+            assert user["oidc_claims"]["preferred_username"] == "pytest_oid_user"
+            assert user["oidc_claims"]["email"] == "pytest_oid@test.local"
+            assert user["oidc_claims"]["groups"] == ["testers"]
+        finally:
+            client.route("/api/idpcore/user-delete", data={"id": user_id}, method="POST")
+
+    def test_user_create_temporary_applies_all_default_attribute_catalog(self, client):
+        resp = client.route("/api/idpcore/saml-attribute-catalog")
+        body = client.assert_ok(resp)
+        catalog = body["data"]["data"]
+
+        resp = client.route("/api/idpcore/user-create-temporary", data={
+            "username": "pytest_default_attrs",
+            "password": "temppass123",
+            "email": "pytest_default_attrs@test.local",
+            "display_name": "Default Attrs",
+        }, method="POST")
+        body = client.assert_ok(resp)
+        user = body["data"]["data"]
+        user_id = user["id"]
+
+        try:
+            attrs = user["saml_attributes"]
+            claims = user["oidc_claims"]
+            for attr in catalog:
+                assert attr["urn"] in attrs
+            for claim in [
+                "preferred_username",
+                "email",
+                "name",
+                "given_name",
+                "family_name",
+                "department",
+                "groups",
+                "eduPersonPrincipalName",
+                "eduPersonAffiliation",
+                "eduPersonScopedAffiliation",
+                "eduPersonEntitlement",
+                "profile",
+            ]:
+                assert claim in claims
         finally:
             client.route("/api/idpcore/user-delete", data={"id": user_id}, method="POST")
 
@@ -209,6 +257,19 @@ class TestIdpcorePresetAPI:
         uid = next(item for item in catalog if item["friendly_name"] == "uid")
         assert uid["urn"] == "urn:oid:0.9.2342.19200300.100.1.1"
         assert "uid" in uid["aliases"]
+
+    def test_pysaml2_attribute_catalog(self, client):
+        resp = client.route("/api/idpcore/pysaml2-attribute-catalog")
+        body = client.assert_ok(resp)
+        catalog = body["data"]["data"]
+        assert len(catalog) > 50
+        mail = next(
+            item for item in catalog
+            if item["friendly_name"] == "mail" and item["name"] == "urn:oid:0.9.2342.19200300.100.1.3"
+        )
+        assert mail["name"] == "urn:oid:0.9.2342.19200300.100.1.3"
+        assert mail["oidc_claim_key"] == "email"
+        assert mail["name_format"]
 
 
 class TestAuthentication:

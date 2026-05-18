@@ -32,3 +32,6 @@
 | 2026-04-21 | 002 | OIDC RP 수정 기능과 authorize admin 숨김 처리 | [상세](devlog/2026-04-21/002-oidc-rp-edit-and-admin-filter.md) |
 | 2026-04-21 | 003 | OIDC authorize quick account top-navigation 전환 | [상세](devlog/2026-04-21/003-oidc-authorize-quick-account-top-navigation.md) |
 | 2026-04-21 | 004 | SAML SP 등록 화면의 삭제/확인 모달 동작 복구 | [상세](devlog/2026-04-21/004-saml-sp-register-modal-fix.md) |
+| 2026-05-18 | 001 | Test IdP 화면을 컴팩트한 운영 UI로 재설계 | [상세](devlog/2026-05-18/001-compact-ui-redesign.md) |
+| 2026-05-18 | 002 | Overview 임시 계정 편집 OID 선택의 OIDC Claims 동시 적용 및 2단 배치 | [상세](devlog/2026-05-18/002-temp-account-oidc-claim-selector.md) |
+| 2026-05-18 | 003 | 임시 계정 기본 SAML/OIDC 속성 자동 생성 및 pysaml2 속성 카탈로그 적용 | [상세](devlog/2026-05-18/003-temp-account-pysaml2-attribute-catalog.md) |

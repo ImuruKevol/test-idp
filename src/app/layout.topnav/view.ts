@@ -15,8 +15,8 @@ export class Component implements OnInit {
 
     public navClass(prefix: string) {
         if (this.isActive(prefix)) {
-            return 'inline-flex items-center rounded-full bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm';
+            return 'inline-flex h-8 items-center rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white';
         }
-        return 'inline-flex items-center rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600 ring-1 ring-inset ring-zinc-200 transition hover:bg-zinc-50';
+        return 'inline-flex h-8 items-center rounded-md px-3 text-xs font-semibold text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950';
     }
 }

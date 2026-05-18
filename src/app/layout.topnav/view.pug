@@ -1,32 +1,33 @@
-div(class="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,_rgba(251,146,60,0.18),_transparent_28%),linear-gradient(180deg,_#fff7ed_0%,_#ffffff_28%,_#f8fafc_100%)]")
-    header(class="sticky top-0 z-30 border-b border-orange-100/80 bg-white/85 backdrop-blur")
-        div(class="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8")
-            div(class="min-w-0")
-                a(routerLink="/", class="flex items-center gap-3")
-                    div(class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-sm")
-                        img(src="/assets/brand/test-idp-favicon.svg", alt="Test Identity Provider", class="h-8 w-8")
-                    div(class="min-w-0")
-                        p(class="truncate text-[15px] font-semibold text-zinc-950") Test Identity Provider
-                        p(class="truncate text-xs text-zinc-500") SAML IdP and OIDC OP playground
-            nav(class="flex items-center gap-2")
+div(class="flex h-full min-h-0 flex-col bg-[#f6f7f9]")
+    header(class="sticky top-0 z-30 border-b border-zinc-200 bg-white/95 backdrop-blur")
+        div(class="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-2.5 sm:px-5")
+            a(routerLink="/", class="flex min-w-0 items-center gap-2.5")
+                div(class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-white")
+                    img(src="/assets/brand/test-idp-favicon.svg", alt="Test Identity Provider", class="h-6 w-6")
+                div(class="hidden min-w-0 sm:block")
+                    p(class="truncate text-[14px] font-semibold leading-5 text-zinc-950") Test IdP
+                    p(class="truncate text-[11px] leading-4 text-zinc-500") SAML / OIDC test provider
+
+            nav(class="flex flex-1 items-center justify-center gap-1")
                 a(routerLink="/", [class]="navClass('/')") Overview
                 a(routerLink="/saml/register", [class]="navClass('/saml')") SAML
                 a(routerLink="/oidc/register", [class]="navClass('/oidc')") OIDC
-            div(*ngIf="service.auth.session?.id", class="flex items-center gap-3")
-                div(class="hidden flex-col text-right sm:flex")
-                    span(class="text-[13px] font-medium text-zinc-900") {{service.auth.session?.name || 'Tester'}}
-                    span(class="text-[11px] text-zinc-400") {{service.auth.session?.role || ''}}
-                a(href="/auth/logout", class="flex items-center gap-1 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-inset ring-zinc-200 transition hover:bg-zinc-200")
+
+            div(*ngIf="service.auth.session?.id", class="flex min-w-0 items-center justify-end gap-2")
+                div(class="hidden min-w-0 text-right md:block")
+                    span(class="block truncate text-[12px] font-medium text-zinc-900") {{service.auth.session?.name || 'Tester'}}
+                    span(class="block truncate text-[10px] text-zinc-400") {{service.auth.session?.role || ''}}
+                a(href="/auth/logout", class="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-medium text-zinc-600 transition hover:border-zinc-300 hover:bg-zinc-50")
                     svg(xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor", class="size-3.5")
                         path(stroke-linecap="round", stroke-linejoin="round", d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9")
-                    span Logout
+                    span(class="hidden sm:inline") Logout
             a(*ngIf="!service.auth.session?.id",
                 routerLink="/access",
-                class="flex items-center gap-1 rounded-full bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-orange-700") Login
+                class="inline-flex h-8 items-center rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white transition hover:bg-zinc-800") Login
 
     main(class="min-h-0 flex-1 overflow-auto")
         router-outlet
 
 wiz-portal-season-modal
-div(*ngIf="service.status.loading", class="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-md")
-    wiz-portal-season-loading-season(className="w-12 h-12 text-orange-500 animate-spin duration-700")
+div(*ngIf="service.status.loading", class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/20 backdrop-blur-sm")
+    wiz-portal-season-loading-season(className="w-10 h-10 text-zinc-900 animate-spin duration-700")

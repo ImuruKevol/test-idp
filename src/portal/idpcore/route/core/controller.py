@@ -246,6 +246,13 @@ if action == "saml-attribute-catalog":
         wiz.response.status(500, message=str(e))
     wiz.response.status(200, data=result)
 
+if action == "pysaml2-attribute-catalog":
+    try:
+        result = core.pysaml2_attribute_catalog()
+    except Exception as e:
+        wiz.response.status(500, message=str(e))
+    wiz.response.status(200, data=result)
+
 if action == "presets":
     protocol = wiz.request.query("protocol", "")
     try:

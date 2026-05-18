@@ -18,7 +18,9 @@ export class Component implements OnInit {
     };
 
     public saving: boolean = false;
-    public samlAttributeCatalog: any[] = [];
+    public attributeCatalog: any[] = [];
+    public attributeFilter: string = '';
+    public addingAttributeKey: string = '';
 
     constructor(public service: Service) { }
 
@@ -33,18 +35,20 @@ export class Component implements OnInit {
             this.form.saml_attributes = JSON.stringify(this.item.saml_attributes || {}, null, 2);
             this.form.oidc_claims = JSON.stringify(this.item.oidc_claims || {}, null, 2);
         }
-        await this.loadSamlAttributeCatalog();
+        await this.loadAttributeCatalog();
         await this.service.render();
     }
 
-    public async loadSamlAttributeCatalog() {
+    public async loadAttributeCatalog() {
         try {
-            const res = await this.service.request.post('/api/idpcore/saml-attribute-catalog', {});
+            const res = await this.service.request.post('/api/idpcore/pysaml2-attribute-catalog', {});
             if (res.code === 200) {
-                this.samlAttributeCatalog = res.data.data || [];
+                const items = res.data.data || [];
+                this.attributeCatalog = items.map((attr: any) => Object.assign({}, attr));
+                this.refreshAttributeStatus();
             }
         } catch (e) {
-            this.samlAttributeCatalog = [];
+            this.attributeCatalog = [];
         }
     }
 
@@ -60,14 +64,97 @@ export class Component implements OnInit {
         return null;
     }
 
-    public async insertSamlAttribute(attr: any) {
-        const parsed = this.parseObjectEditor(this.form.saml_attributes);
-        if (parsed === null) {
+    private hasOwn(obj: any, key: string): boolean {
+        if (!obj || !key) return false;
+        return Object.prototype.hasOwnProperty.call(obj, key);
+    }
+
+    public attributeKey(attr: any): string {
+        return `${attr.name_format || ''}|${attr.name || attr.urn || ''}`;
+    }
+
+    private samlKeysForAttribute(attr: any): string[] {
+        const keys: string[] = [];
+        for (const key of [attr.name, attr.urn, attr.friendly_name]) {
+            const value = String(key || '').trim();
+            if (value && keys.indexOf(value) < 0) keys.push(value);
+        }
+        if (attr.oid) {
+            const oidKey = `urn:oid:${attr.oid}`;
+            if (keys.indexOf(oidKey) < 0) keys.push(oidKey);
+        }
+        return keys;
+    }
+
+    private refreshAttributeStatus() {
+        const parsedAttributes = this.parseObjectEditor(this.form.saml_attributes);
+        const parsedClaims = this.parseObjectEditor(this.form.oidc_claims);
+        const saml = parsedAttributes || {};
+        const oidc = parsedClaims || {};
+        this.attributeCatalog = this.attributeCatalog.map((attr: any) => {
+            const item = Object.assign({}, attr);
+            const claimKey = String(item.oidc_claim_key || '').trim();
+            item.has_saml = this.samlKeysForAttribute(item).some((key: string) => this.hasOwn(saml, key));
+            item.has_oidc = this.hasOwn(oidc, claimKey);
+            return item;
+        });
+    }
+
+    public filteredAttributeCatalog(): any[] {
+        const query = String(this.attributeFilter || '').trim().toLowerCase();
+        if (!query) return this.attributeCatalog;
+        return this.attributeCatalog.filter((attr: any) => {
+            const aliases = Array.isArray(attr.aliases) ? attr.aliases.join(' ') : '';
+            const haystack = [
+                attr.friendly_name,
+                attr.name,
+                attr.oid,
+                attr.oidc_claim_key,
+                attr.name_format,
+                aliases,
+            ].join(' ').toLowerCase();
+            return haystack.indexOf(query) >= 0;
+        });
+    }
+
+    public async onEditorChange() {
+        this.refreshAttributeStatus();
+        await this.service.render();
+    }
+
+    public async addCatalogAttribute(attr: any) {
+        const key = this.attributeKey(attr);
+        this.addingAttributeKey = key;
+        await this.service.render();
+
+        const parsedAttributes = this.parseObjectEditor(this.form.saml_attributes);
+        if (parsedAttributes === null) {
             await this.service.modal.error('SAML Attributes JSON 형식이 올바르지 않습니다. 먼저 JSON을 수정해 주세요.');
+            this.addingAttributeKey = '';
+            await this.service.render();
             return;
         }
-        parsed[attr.urn] = attr.example;
-        this.form.saml_attributes = JSON.stringify(parsed, null, 2);
+
+        const parsedClaims = this.parseObjectEditor(this.form.oidc_claims);
+        if (parsedClaims === null) {
+            await this.service.modal.error('OIDC Claims JSON 형식이 올바르지 않습니다. 먼저 JSON을 수정해 주세요.');
+            this.addingAttributeKey = '';
+            await this.service.render();
+            return;
+        }
+
+        const samlName = String(attr.name || attr.urn || '').trim();
+        const claimKey = String(attr.oidc_claim_key || '').trim();
+        if (samlName) {
+            parsedAttributes[samlName] = attr.example;
+        }
+        if (claimKey) {
+            parsedClaims[claimKey] = attr.example;
+        }
+        this.form.saml_attributes = JSON.stringify(parsedAttributes, null, 2);
+        this.form.oidc_claims = JSON.stringify(parsedClaims, null, 2);
+        this.addingAttributeKey = '';
+        this.refreshAttributeStatus();
         await this.service.render();
     }
 

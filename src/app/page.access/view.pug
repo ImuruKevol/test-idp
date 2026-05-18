@@ -1,29 +1,33 @@
-div(class="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-zinc-50 via-white to-orange-50/30 px-4")
-    div(class="w-full max-w-sm")
-        div(class="mb-8 text-center")
-            div(class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-orange-600 text-white")
-                svg(xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor", class="size-6")
-                    path(stroke-linecap="round", stroke-linejoin="round", d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z")
-            h1(class="mt-4 text-xl font-semibold text-zinc-950") Test IdP
-            p(class="mt-1 text-[13px] text-zinc-500") 관리자 로그인
+div(class="flex min-h-screen items-center justify-center bg-[#f6f7f9] px-4")
+    div(class="w-full max-w-sm rounded-lg border border-zinc-200 bg-white")
+        div(class="border-b border-zinc-200 px-5 py-4")
+            div(class="flex items-center gap-2.5")
+                div(class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-white")
+                    img(src="/assets/brand/test-idp-favicon.svg", alt="Test Identity Provider", class="h-6 w-6")
+                div
+                    h1(class="text-[16px] font-semibold text-zinc-950") Test IdP
+                    p(class="text-xs text-zinc-500") 관리자 로그인
 
-        div(class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm")
-            div(class="space-y-4")
-                div
-                    label(class="block text-[13px] font-medium text-zinc-700 mb-1") 사용자명
-                    input(type="text",
-                        [(ngModel)]="data.username",
-                        (keydown.enter)="login()",
-                        placeholder="admin",
-                        class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
-                div
-                    label(class="block text-[13px] font-medium text-zinc-700 mb-1") 비밀번호
-                    input(type="password",
-                        [(ngModel)]="data.password",
-                        (keydown.enter)="login()",
-                        placeholder="••••••••",
-                        class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500")
-                button((click)="login()",
-                    class="w-full rounded-lg bg-orange-600 px-4 py-2 text-[13px] font-medium text-white hover:bg-orange-700 transition-colors") 로그인
+        div(class="space-y-4 px-5 py-5")
+            div
+                label(class="mb-1 block text-[13px] font-medium text-zinc-700") 사용자명
+                input(type="text",
+                    [(ngModel)]="data.username",
+                    (ngModelChange)="service.render()",
+                    (keydown.enter)="login()",
+                    placeholder="admin",
+                    class="w-full rounded-md border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500")
+            div
+                label(class="mb-1 block text-[13px] font-medium text-zinc-700") 비밀번호
+                input(type="password",
+                    [(ngModel)]="data.password",
+                    (ngModelChange)="service.render()",
+                    (keydown.enter)="login()",
+                    placeholder="••••••••",
+                    class="w-full rounded-md border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500")
+            button((click)="login()",
+                [disabled]="loggingIn",
+                class="h-9 w-full rounded-md bg-zinc-950 px-4 text-[13px] font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50")
+                | {{ loggingIn ? '로그인 중...' : '로그인' }}
 
 wiz-portal-season-modal

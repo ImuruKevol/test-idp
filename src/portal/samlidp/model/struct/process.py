@@ -372,7 +372,10 @@ class Process:
                 attr_spec = resolved_attribute_specs.get(attr_name) or core.saml_attribute_spec(attr_name)
                 attr_el = etree.SubElement(attr_stmt, f"{{{NS['saml']}}}Attribute")
                 attr_el.set("Name", attr_spec["urn"] if attr_spec else attr_name)
-                attr_el.set("NameFormat", "urn:oasis:names:tc:SAML:2.0:attrname-format:uri")
+                name_format = "urn:oasis:names:tc:SAML:2.0:attrname-format:uri"
+                if attr_spec:
+                    name_format = attr_spec.get("name_format", name_format)
+                attr_el.set("NameFormat", name_format)
                 if attr_spec and attr_spec.get("friendly_name"):
                     attr_el.set("FriendlyName", attr_spec["friendly_name"])
 

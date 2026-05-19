@@ -44,6 +44,13 @@ def _find_active_user(user_id="", username="", email=""):
             return row
     return None
 
+def _is_admin_account(user):
+    if not user:
+        return False
+    role = str(user.get("role", "")).strip().lower()
+    username = str(user.get("username", "")).strip().lower()
+    return role == "admin" or username == "admin"
+
 def _session_sso_user():
     session_user_id = struct.session.get("id", "")
     if session_user_id:
@@ -122,11 +129,13 @@ def _resolve_sso_request_state():
     return state
 
 def _resolve_login_user():
-    selected_user_id = wiz.request.query("selected_user_id", "")
+    selected_user_id = str(wiz.request.query("selected_user_id", "")).strip()
     if selected_user_id:
         user = _find_active_user(user_id=selected_user_id)
         if user is None:
             raise Exception("선택한 테스트 사용자를 찾을 수 없습니다.")
+        if _is_admin_account(user):
+            raise Exception("admin 계정은 목록에서 바로 선택할 수 없습니다. 관리자 로그인 폼을 사용해주세요.")
         _set_session_user(user)
         return user
 
@@ -178,6 +187,8 @@ def _build_sso_prompt_html(state, error_message=""):
 
     cards = []
     for user in users:
+        if _is_admin_account(user):
+            continue
         display_name = str(user.get("display_name", user.get("username", ""))).strip() or str(user.get("username", "")).strip()
         username = str(user.get("username", "")).strip()
         email_value = str(user.get("email", "")).strip()
@@ -378,7 +389,7 @@ def _build_sso_prompt_html(state, error_message=""):
                     {_hidden_sso_inputs(state)}
                     <div class=\"field\">
                         <label for=\"login_id\">사용자명 또는 이메일</label>
-                        <input id=\"login_id\" name=\"login_id\" type=\"text\" placeholder=\"admin 또는 admin@test-idp.local\" autocomplete=\"username\"/>
+                        <input id=\"login_id\" name=\"login_id\" type=\"text\" placeholder=\"admin\" autocomplete=\"username\"/>
                     </div>
                     <div class=\"field\">
                         <label for=\"password\">비밀번호</label>

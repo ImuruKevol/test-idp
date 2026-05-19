@@ -35,3 +35,4 @@
 | 2026-05-18 | 001 | Test IdP 화면을 컴팩트한 운영 UI로 재설계 | [상세](devlog/2026-05-18/001-compact-ui-redesign.md) |
 | 2026-05-18 | 002 | Overview 임시 계정 편집 OID 선택의 OIDC Claims 동시 적용 및 2단 배치 | [상세](devlog/2026-05-18/002-temp-account-oidc-claim-selector.md) |
 | 2026-05-18 | 003 | 임시 계정 기본 SAML/OIDC 속성 자동 생성 및 pysaml2 속성 카탈로그 적용 | [상세](devlog/2026-05-18/003-temp-account-pysaml2-attribute-catalog.md) |
+| 2026-05-19 | 001 | SAML SSO 빠른 계정 선택에서 admin 계정 제외 | [상세](devlog/2026-05-19/001-saml-sso-admin-quick-pick-filter.md) |

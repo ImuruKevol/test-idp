@@ -65,6 +65,22 @@ def _get_admin_user_id(client):
     return body["data"]["data"]["id"]
 
 
+def _create_temp_user(client, username="saml_prompt_pytest"):
+    resp = client.route("/api/idpcore/user-create-temporary", data={
+        "username": username,
+        "password": "test1234",
+        "email": f"{username}@debug-idp.nanoha.kr",
+        "display_name": "SAML Prompt Pytest User",
+    }, method="POST")
+    body = client.assert_ok(resp)
+    return body["data"]["data"]
+
+
+def _delete_user(client, user):
+    if user and user.get("id"):
+        client.route("/api/idpcore/user-delete", data={"id": user["id"]}, method="POST")
+
+
 def _get_saml_preset_id(client, name="minimal"):
     resp = client.route("/api/idpcore/presets", data={"protocol": "saml"})
     body = client.assert_ok(resp)
@@ -475,20 +491,44 @@ class TestSAMLRoute:
     def test_sso_endpoint_prompts_for_login_when_unauthenticated(self, client, anon_client):
         """세션이 없으면 계정 선택 또는 로그인 화면을 먼저 보여준다."""
         _ensure_sample_sp(client)
+        user = _create_temp_user(client)
         encoded = base64.b64encode(SAMPLE_AUTHN_REQUEST.encode("utf-8")).decode("utf-8")
+        try:
+            resp = anon_client.route("/api/saml/sso", data={
+                "SAMLRequest": encoded,
+                "RelayState": "route_test",
+            }, method="POST")
+
+            assert resp.status_code == 200
+            assert "text/html" in resp.headers.get("Content-Type", "")
+            assert "서비스가 인증을 요청했습니다." in resp.text
+            assert 'name="login_id"' in resp.text
+            assert 'name="password"' in resp.text
+            assert 'name="selected_user_id"' in resp.text
+            assert user["email"] in resp.text
+            assert "admin@test-idp.local" not in resp.text
+            assert 'name="SAMLResponse"' not in resp.text
+            assert _extract_hidden_input_value(resp.text, "relay_state") == "route_test"
+        finally:
+            _delete_user(client, user)
+
+    def test_sso_endpoint_rejects_admin_quick_selection(self, client, anon_client):
+        """admin selected_user_id를 직접 보내도 빠른 선택으로 처리하지 않는다."""
+        _ensure_sample_sp(client)
+        admin_id = _get_admin_user_id(client)
+        encoded = base64.b64encode(SAMPLE_AUTHN_REQUEST.encode("utf-8")).decode("utf-8")
+
         resp = anon_client.route("/api/saml/sso", data={
             "SAMLRequest": encoded,
             "RelayState": "route_test",
+            "selected_user_id": admin_id,
         }, method="POST")
 
         assert resp.status_code == 200
         assert "text/html" in resp.headers.get("Content-Type", "")
-        assert "서비스가 인증을 요청했습니다." in resp.text
-        assert 'name="login_id"' in resp.text
-        assert 'name="password"' in resp.text
-        assert 'name="selected_user_id"' in resp.text
+        assert "admin 계정은 목록에서 바로 선택할 수 없습니다" in resp.text
+        assert "admin@test-idp.local" not in resp.text
         assert 'name="SAMLResponse"' not in resp.text
-        assert _extract_hidden_input_value(resp.text, "relay_state") == "route_test"
 
     def test_sso_endpoint_accepts_prompt_login_submission(self, client, anon_client, known_admin_password):
         """프롬프트에서 ID/PW를 제출하면 SAMLResponse를 생성한다."""

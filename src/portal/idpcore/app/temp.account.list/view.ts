@@ -9,6 +9,33 @@ export class Component implements OnInit {
     public formMode: string = 'create';
     public lastCreated: any = null;
     public creating: boolean = false;
+    public selectedQuickPreset: string = 'general';
+    public quickCreatePresets: any[] = [
+        {
+            id: 'general',
+            label: '일반',
+            description: '기본 로그인 검증용 계정을 생성합니다.',
+            summary: 'uid, mail, displayName'
+        },
+        {
+            id: 'research',
+            label: '연구소',
+            description: '연구원/랩 접근 검증용 eduPerson 속성을 포함합니다.',
+            summary: 'eduPersonPrincipalName, eduPersonEntitlement'
+        },
+        {
+            id: 'university',
+            label: '학교',
+            description: '학생/교직원 federation 검증용 속성을 포함합니다.',
+            summary: 'eduPersonAffiliation, scoped affiliation'
+        },
+        {
+            id: 'institution',
+            label: '기관',
+            description: '기관 직원/멤버십 검증용 권한 속성을 포함합니다.',
+            summary: 'department, memberOf, entitlement'
+        }
+    ];
 
     constructor(public service: Service) { }
 
@@ -47,30 +74,126 @@ export class Component implements OnInit {
         return s;
     }
 
+    public quickPresetById(presetId: string): any {
+        return this.quickCreatePresets.find((item: any) => item.id === presetId) || this.quickCreatePresets[0];
+    }
+
+    public selectedQuickPresetLabel(): string {
+        return this.quickPresetById(this.selectedQuickPreset).label;
+    }
+
+    public async selectQuickPreset(presetId: string) {
+        if (this.creating) return;
+        this.selectedQuickPreset = this.quickPresetById(presetId).id;
+        await this.service.render();
+    }
+
+    private quickPresetDisplayName(presetId: string, suffix: string): string {
+        const code = suffix.toUpperCase();
+        if (presetId === 'research') return `Researcher ${code}`;
+        if (presetId === 'university') return `Student ${code}`;
+        if (presetId === 'institution') return `Member ${code}`;
+        return `Tester ${code}`;
+    }
+
+    private quickPresetProfile(presetId: string): any {
+        if (presetId === 'research') {
+            return {
+                department: 'research',
+                groups: ['researchers', 'lab-users'],
+                organization: 'Research Lab',
+                affiliation: ['member', 'researcher'],
+                scoped_affiliation: ['member@test-idp.local', 'researcher@test-idp.local'],
+                entitlements: ['urn:test-idp:entitlement:research', 'urn:test-idp:entitlement:dataset-access']
+            };
+        }
+        if (presetId === 'university') {
+            return {
+                department: 'academic',
+                groups: ['students', 'course-demo'],
+                organization: 'Example University',
+                affiliation: ['student', 'member'],
+                scoped_affiliation: ['student@test-idp.local', 'member@test-idp.local'],
+                entitlements: ['urn:mace:dir:entitlement:common-lib-terms']
+            };
+        }
+        if (presetId === 'institution') {
+            return {
+                department: 'platform',
+                groups: ['staff', 'federation-users'],
+                organization: 'Public Institution',
+                affiliation: ['employee', 'member'],
+                scoped_affiliation: ['employee@test-idp.local', 'member@test-idp.local'],
+                entitlements: ['urn:test-idp:entitlement:agency-portal', 'urn:test-idp:entitlement:full-access']
+            };
+        }
+        return {
+            department: 'testing',
+            groups: ['testers'],
+            organization: 'Test IDP'
+        };
+    }
+
+    private quickPresetSamlAttributes(presetId: string, context: any, profile: any): any {
+        const attrs: any = {
+            'urn:oid:0.9.2342.19200300.100.1.1': context.username,
+            'urn:oid:0.9.2342.19200300.100.1.3': context.email,
+            'urn:oid:2.16.840.1.113730.3.1.241': context.displayName
+        };
+        if (presetId === 'general') return attrs;
+
+        const nameParts = String(context.displayName || '').split(' ');
+        attrs['urn:oid:1.3.6.1.4.1.5923.1.1.1.6'] = context.email;
+        attrs['urn:oid:1.3.6.1.4.1.5923.1.1.1.1'] = profile.affiliation;
+        attrs['urn:oid:1.3.6.1.4.1.5923.1.1.1.9'] = profile.scoped_affiliation;
+        attrs['urn:oid:1.3.6.1.4.1.5923.1.1.1.7'] = profile.entitlements;
+        attrs['urn:oid:2.5.4.42'] = nameParts[0] || context.username;
+        attrs['urn:oid:2.5.4.4'] = nameParts.slice(1).join(' ') || 'Tester';
+        attrs['urn:oid:2.16.840.1.113730.3.1.2'] = profile.department;
+        attrs['urn:oid:1.2.840.113556.1.2.102'] = profile.groups;
+        return attrs;
+    }
+
+    private quickPresetOidcClaims(presetId: string, context: any, profile: any): any {
+        const claims: any = {
+            preferred_username: context.username,
+            email: context.email,
+            name: context.displayName
+        };
+        if (presetId === 'general') return claims;
+
+        claims.organization = profile.organization;
+        claims.department = profile.department;
+        claims.groups = profile.groups;
+        claims.eduPersonPrincipalName = context.email;
+        claims.eduPersonAffiliation = profile.affiliation;
+        claims.eduPersonScopedAffiliation = profile.scoped_affiliation;
+        claims.eduPersonEntitlement = profile.entitlements;
+        return claims;
+    }
+
     public async quickCreate() {
         this.creating = true;
         await this.service.render();
 
+        const preset = this.quickPresetById(this.selectedQuickPreset);
+        const presetId = preset.id;
         const suffix = this.generateSuffix();
         const username = `tester_${suffix}`;
         const password = 'test1234';
+        const email = `${username}@test-idp.local`;
+        const displayName = this.quickPresetDisplayName(presetId, suffix);
+        const profile = this.quickPresetProfile(presetId);
+        const context = { username: username, email: email, displayName: displayName };
 
         const data: any = {
             username: username,
             password: password,
-            display_name: `Tester ${suffix.toUpperCase()}`,
-            email: `${username}@test-idp.local`,
-            profile: JSON.stringify({ department: 'testing', groups: ['testers'] }),
-            saml_attributes: JSON.stringify({
-                'urn:oid:0.9.2342.19200300.100.1.1': username,
-                'urn:oid:0.9.2342.19200300.100.1.3': `${username}@test-idp.local`,
-                'urn:oid:2.16.840.1.113730.3.1.241': `Tester ${suffix.toUpperCase()}`
-            }),
-            oidc_claims: JSON.stringify({
-                preferred_username: username,
-                email: `${username}@test-idp.local`,
-                name: `Tester ${suffix.toUpperCase()}`
-            })
+            display_name: displayName,
+            email: email,
+            profile: JSON.stringify(profile),
+            saml_attributes: JSON.stringify(this.quickPresetSamlAttributes(presetId, context, profile)),
+            oidc_claims: JSON.stringify(this.quickPresetOidcClaims(presetId, context, profile))
         };
 
         try {
@@ -82,7 +205,8 @@ export class Component implements OnInit {
                     password: password,
                     display_name: created.display_name || data.display_name,
                     email: created.email || data.email,
-                    expires: created.expires || ''
+                    expires: created.expires || '',
+                    preset_label: preset.label
                 };
                 await this.load();
             } else {

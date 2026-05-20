@@ -34,7 +34,22 @@ div(class="w-full")
                         class="inline-flex h-8 items-center rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50",
                         (click)="quickCreate()")
                         span(*ngIf="!creating") Quick Create
-                        span(*ngIf="creating") 생성 중...
+                        span(*ngIf="creating") {{ selectedQuickPresetLabel() }} 생성 중...
+
+            div(class="grid gap-2 md:grid-cols-4")
+                button(*ngFor="let preset of quickCreatePresets",
+                    type="button",
+                    [disabled]="creating",
+                    class="min-h-[82px] rounded-md border bg-white px-3 py-2 text-left transition hover:border-zinc-400 disabled:opacity-50",
+                    [class.border-zinc-950]="selectedQuickPreset === preset.id",
+                    [class.bg-zinc-50]="selectedQuickPreset === preset.id",
+                    [class.border-zinc-200]="selectedQuickPreset !== preset.id",
+                    (click)="selectQuickPreset(preset.id)")
+                    div(class="flex items-center justify-between gap-2")
+                        span(class="text-[13px] font-semibold text-zinc-900") {{ preset.label }}
+                        span(*ngIf="selectedQuickPreset === preset.id", class="rounded-md bg-zinc-950 px-1.5 py-0.5 text-[10px] font-semibold text-white") 선택
+                    p(class="mt-1 text-[11px] leading-4 text-zinc-500") {{ preset.description }}
+                    p(class="mt-1 truncate font-mono text-[10px] text-zinc-400") {{ preset.summary }}
 
             div(class="grid gap-2 text-xs text-zinc-600 md:grid-cols-4")
                 div(class="rounded-md bg-zinc-50 px-3 py-2") 생성 10회 / 5분
@@ -46,7 +61,7 @@ div(class="w-full")
             div(class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between")
                 div
                     p(class="text-[13px] font-semibold text-emerald-800") 임시 계정이 생성되었습니다.
-                    p(class="mt-1 text-xs text-emerald-700") 아래 값을 SP/RP 로그인 테스트에 사용하세요.
+                    p(class="mt-1 text-xs text-emerald-700") {{ lastCreated.preset_label }} 프리셋으로 생성했습니다. 아래 값을 SP/RP 로그인 테스트에 사용하세요.
                 button(type="button",
                     class="self-start rounded-md px-2 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 lg:self-auto",
                     (click)="dismissCreated()") 닫기

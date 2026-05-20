@@ -36,6 +36,7 @@ def test_temporary_account_list_preserves_actions():
 
     for action in (
         "quickCreate()",
+        "selectQuickPreset(preset.id)",
         "openCreate()",
         "cleanupExpired()",
         "extendValidity(item)",
@@ -48,6 +49,32 @@ def test_temporary_account_list_preserves_actions():
     assert 'wiz-portal-idpcore-temp-account-form' in template
     assert "Quick Create" in template
     assert "rounded-xl" not in template
+
+
+def test_quick_create_offers_edu_person_presets():
+    source = read("src/portal/idpcore/app/temp.account.list/view.ts")
+    template = read("src/portal/idpcore/app/temp.account.list/view.pug")
+
+    for expected in ("일반", "연구소", "학교", "기관"):
+        assert expected in source
+
+    for expected in (
+        "quickCreatePresets",
+        "selectedQuickPreset",
+        "selectQuickPreset(preset.id)",
+        "selectedQuickPresetLabel()",
+    ):
+        assert expected in template
+
+    for expected in (
+        "eduPersonPrincipalName",
+        "eduPersonAffiliation",
+        "eduPersonScopedAffiliation",
+        "eduPersonEntitlement",
+        "urn:oid:1.3.6.1.4.1.5923.1.1.1.6",
+        "urn:oid:1.3.6.1.4.1.5923.1.1.1.7",
+    ):
+        assert expected in source
 
 
 def test_access_login_has_loading_state_and_render_updates():

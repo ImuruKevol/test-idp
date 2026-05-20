@@ -40,3 +40,4 @@
 | 2026-05-20 | 002 | Test IdP README 한영 재작성 및 1920x1080 화면 캡처 추가 | [상세](devlog/2026-05-20/002-readme-refresh.md) |
 | 2026-05-20 | 003 | README WIZ Framework 정보 추가 및 캡처 도구 문구 정리 | [상세](devlog/2026-05-20/003-readme-framework-note.md) |
 | 2026-05-20 | 004 | GitHub 공개 전 민감 정보 및 불필요 산출물 정리 | [상세](devlog/2026-05-20/004-github-publish-sanitization.md) |
+| 2026-05-20 | 005 | GitHub 공개용 MIT 라이센스 파일 추가 | [상세](devlog/2026-05-20/005-mit-license.md) |

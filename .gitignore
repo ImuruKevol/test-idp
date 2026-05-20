@@ -9,6 +9,7 @@ package-lock.json
 
 metadata/
 data/
+docs/screenshots/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

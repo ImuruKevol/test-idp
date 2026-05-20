@@ -239,15 +239,20 @@ export class Component implements OnInit {
         return result;
     }
 
+    private generatePassword(): string {
+        return `test-${this.generateSuffix()}-${this.generateSuffix()}`;
+    }
+
     public async quickCreateUser() {
         this.quickCreating = true;
         await this.service.render();
 
         const suffix = this.generateSuffix();
+        const password = this.generatePassword();
         const username = `oidc_${suffix}`;
         const data: any = {
             username: username,
-            password: 'test1234',
+            password: password,
             display_name: `OIDC Tester ${suffix.toUpperCase()}`,
             email: `${username}@debug-idp.nanoha.kr`,
             profile: JSON.stringify({ department: 'qa', groups: ['oidc-testers'] }),

@@ -74,6 +74,10 @@ export class Component implements OnInit {
         return s;
     }
 
+    private generatePassword(): string {
+        return `test-${this.generateSuffix()}-${this.generateSuffix()}`;
+    }
+
     public quickPresetById(presetId: string): any {
         return this.quickCreatePresets.find((item: any) => item.id === presetId) || this.quickCreatePresets[0];
     }
@@ -180,7 +184,7 @@ export class Component implements OnInit {
         const presetId = preset.id;
         const suffix = this.generateSuffix();
         const username = `tester_${suffix}`;
-        const password = 'test1234';
+        const password = this.generatePassword();
         const email = `${username}@test-idp.local`;
         const displayName = this.quickPresetDisplayName(presetId, suffix);
         const profile = this.quickPresetProfile(presetId);

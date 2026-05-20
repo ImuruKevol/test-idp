@@ -37,3 +37,6 @@
 | 2026-05-18 | 003 | 임시 계정 기본 SAML/OIDC 속성 자동 생성 및 pysaml2 속성 카탈로그 적용 | [상세](devlog/2026-05-18/003-temp-account-pysaml2-attribute-catalog.md) |
 | 2026-05-19 | 001 | SAML SSO 빠른 계정 선택에서 admin 계정 제외 | [상세](devlog/2026-05-19/001-saml-sso-admin-quick-pick-filter.md) |
 | 2026-05-20 | 001 | Quick Create 프리셋 선택과 eduPerson 속성 payload 추가 | [상세](devlog/2026-05-20/001-quick-create-presets.md) |
+| 2026-05-20 | 002 | Test IdP README 한영 재작성 및 1920x1080 화면 캡처 추가 | [상세](devlog/2026-05-20/002-readme-refresh.md) |
+| 2026-05-20 | 003 | README WIZ Framework 정보 추가 및 캡처 도구 문구 정리 | [상세](devlog/2026-05-20/003-readme-framework-note.md) |
+| 2026-05-20 | 004 | GitHub 공개 전 민감 정보 및 불필요 산출물 정리 | [상세](devlog/2026-05-20/004-github-publish-sanitization.md) |

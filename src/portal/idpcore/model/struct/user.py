@@ -1,4 +1,6 @@
 import datetime
+import os
+import secrets
 
 
 class User:
@@ -242,7 +244,7 @@ class User:
         return [
             {
                 "username": "admin",
-                "password": "admin1234",
+                "password": self._admin_seed_password(),
                 "email": "admin@test-idp.local",
                 "display_name": "Admin Tester",
                 "role": "admin",
@@ -253,6 +255,12 @@ class User:
                 },
             },
         ]
+
+    def _admin_seed_password(self):
+        password = os.environ.get("TEST_IDP_ADMIN_PASSWORD", "").strip()
+        if password:
+            return password
+        return secrets.token_urlsafe(32)
 
     def _is_expired(self, user):
         if not user.get("is_temporary", False):

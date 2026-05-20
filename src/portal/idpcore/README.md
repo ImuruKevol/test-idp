@@ -107,9 +107,11 @@ core.audit.delete(id)
 
 ## 관리자 계정
 
-| username | password | role | email |
-| -------- | -------- | ---- | ----- |
-| admin | admin1234 | admin | `admin@test-idp.local` |
+관리자 계정은 seed 과정에서 생성되며, 초기 비밀번호는 `TEST_IDP_ADMIN_PASSWORD` 환경 변수로 지정할 수 있다. 환경 변수가 없으면 임의의 강한 값으로 생성되므로 배포 환경에서 직접 설정하거나 관리자 화면에서 즉시 변경한다. 공개 문서에 운영 비밀번호를 기록하지 않는다.
+
+| username | role | email |
+| -------- | ---- | ----- |
+| admin | admin | `admin@test-idp.local` |
 
 ## 기본 속성 프리셋
 

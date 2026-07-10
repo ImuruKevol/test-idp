@@ -19,8 +19,14 @@ Test IdP 저장소는 WIZ 워크스페이스 전체가 아니라 `project/main`�
 
 ```bash
 sudo apt update
-sudo apt install -y git build-essential \
-  pkg-config libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+sudo apt install -y curl git openssl xmlsec1
+sudo apt install -y build-essential pkg-config libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+apt install nodejs npm
+npm i -g n
+n stable
+apt purge nodejs npm
+# nodejs, npm 설치 후 터미널 종료 및 재접속 필수
 
 conda --version
 node --version
@@ -36,14 +42,13 @@ macOS에서는 Xcode Command Line Tools와 Homebrew를 준비한 뒤 Miniconda�
 mkdir test-idp-local
 cd test-idp-local
 
-conda create --name test-idp python=3.12 --yes
+conda create -y -n test-idp python=3.14
 conda activate test-idp
-python --version
-python -m pip install --upgrade pip
-python -m pip install "season==2.5.2" peewee pymysql bcrypt \
-  python3-saml oic pysaml2 lxml signxml cryptography pytest
+pip install season==2.5.2
 
+python --version
 wiz --version
+
 wiz create workspace
 cd workspace
 wiz project create --project=main --uri=https://github.com/ImuruKevol/test-idp.git

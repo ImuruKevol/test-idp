@@ -1,6 +1,23 @@
-import season
+from season.util import stdClass
 
-# SQLite 기반 샘플 데이터베이스 설정
-# namespace별로 변수를 정의하면 orm.base(namespace)에서 참조됨
-post = season.util.stdClass(type="sqlite", path="data/post.db")
-base = season.util.stdClass(type="sqlite", path="data/base.db")
+# WIZ는 워크스페이스 루트에서 실행되므로 DB 경로에 project/main을 포함한다.
+# 각 변수명은 portal 패키지가 orm.base(namespace)로 조회하는 namespace와 같다.
+base = stdClass(
+    type="sqlite",
+    path="project/main/data/base.db",
+)
+
+idpcore = stdClass(
+    type="sqlite",
+    path="project/main/data/idpcore.db",
+)
+
+samlidp = stdClass(
+    type="sqlite",
+    path="project/main/data/samlidp.db",
+)
+
+oidcidp = stdClass(
+    type="sqlite",
+    path="project/main/data/oidcidp.db",
+)

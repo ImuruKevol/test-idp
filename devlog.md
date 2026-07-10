@@ -44,3 +44,5 @@
 | 2026-05-27 | 001 | SAML REFEDS AuthnContextClassRef 입력 및 응답 반영 추가 | [상세](devlog/2026-05-27/001-saml-refeds-authn-context-class-ref.md) |
 | 2026-05-27 | 002 | SAML 로그인 화면 AuthnContextClassRef 설정 노출 개선 | [상세](devlog/2026-05-27/002-saml-authn-context-ui-visibility.md) |
 | 2026-05-27 | 003 | SAML AuthnContextClassRef 입력 영역 중복 제거 | [상세](devlog/2026-05-27/003-saml-authn-context-single-input.md) |
+| 2026-07-10 | 001 | README에 WIZ 기반 설치·실행 가이드와 재현 가능한 DB 설정 추가 | [상세](devlog/2026-07-10/001-readme-installation-guide.md) |
+| 2026-07-10 | 002 | README Python 환경 구성을 Conda 중심 절차로 변경 | [상세](devlog/2026-07-10/002-readme-conda-environment.md) |

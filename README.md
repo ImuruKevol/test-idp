@@ -6,6 +6,115 @@ Live URL: <https://debug-idp.nanoha.kr/>
 
 Framework: [WIZ Framework](https://github.com/season-framework/wiz) (`season==2.5.2`)
 
+## 설치 및 실행
+
+Test IdP 저장소는 WIZ 워크스페이스 전체가 아니라 `project/main`에 들어가는 애플리케이션 프로젝트입니다. 아래 명령은 Linux/macOS 셸 기준이며, WIZ 공식 구조와 CLI 흐름에 맞춰 새 워크스페이스를 구성합니다.
+
+### 1. 준비 사항
+
+- Git
+- [Miniconda 또는 Anaconda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) (Miniconda 권장)
+- Node.js 18.19.1 이상과 npm (Node.js 20 LTS 권장)
+- Ubuntu/Debian에서는 SAML 라이브러리 빌드용 시스템 패키지 설치
+
+```bash
+sudo apt update
+sudo apt install -y git build-essential \
+  pkg-config libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+conda --version
+node --version
+npm --version
+git --version
+```
+
+macOS에서는 Xcode Command Line Tools와 Homebrew를 준비한 뒤 Miniconda와 `node`, `libxml2`, `libxmlsec1`, `pkg-config`를 설치합니다. `conda activate`를 처음 사용하는 셸이라면 `conda init` 실행 후 터미널을 다시 엽니다.
+
+### 2. Conda 환경과 WIZ 워크스페이스 구성
+
+```bash
+mkdir test-idp-local
+cd test-idp-local
+
+conda create --name test-idp python=3.12 --yes
+conda activate test-idp
+python --version
+python -m pip install --upgrade pip
+python -m pip install "season==2.5.2" peewee pymysql bcrypt \
+  python3-saml oic pysaml2 lxml signxml cryptography pytest
+
+wiz --version
+wiz create workspace
+cd workspace
+wiz project create --project=main --uri=https://github.com/ImuruKevol/test-idp.git
+```
+
+Python과 WIZ는 `test-idp` Conda 환경 안에 설치됩니다. `season`은 PyPI로 배포되므로 Conda 환경을 활성화한 상태에서 `python -m pip`로 설치합니다. `wiz create workspace`는 `config/`, `public/`, `ide/`, `plugin/`, `project/`로 이루어진 WIZ 워크스페이스를 만들고, `wiz project create`는 이 저장소를 `project/main`으로 가져와 초기 빌드를 수행합니다.
+
+### 3. 로컬 설정
+
+Git에서 제외되는 SQLite 설정을 샘플로부터 생성합니다. DB 파일과 SAML/OIDC 키는 첫 실행 시 각각 `data/`, `metadata/` 아래에 자동 생성됩니다.
+
+```bash
+cp project/main/config-sample/database.py project/main/config/database.py
+
+# 첫 실행 전에 반드시 원하는 관리자 비밀번호로 변경하세요.
+export TEST_IDP_ADMIN_PASSWORD='replace-with-a-strong-password'
+```
+
+`TEST_IDP_ADMIN_PASSWORD`를 지정하지 않으면 초기 admin 비밀번호가 임의 생성되어 확인할 수 없습니다. 이미 DB를 생성한 뒤 비밀번호를 바꾸려면 `python project/main/scripts/change_admin_password.py`를 실행합니다.
+
+### 4. 빌드와 개발 서버 실행
+
+```bash
+wiz project build --project=main
+wiz run --port=3000
+```
+
+- 애플리케이션: <http://127.0.0.1:3000/>
+- WIZ IDE: <http://127.0.0.1:3000/wiz>
+- 종료: 실행 중인 터미널에서 `Ctrl+C`
+
+이후 다시 실행할 때는 `test-idp` Conda 환경을 활성화하고 WIZ 워크스페이스로 이동합니다.
+
+```bash
+cd test-idp-local
+conda activate test-idp
+cd workspace
+wiz run --port=3000
+```
+
+### 5. 서비스 데몬 실행
+
+리눅스 시스템 서비스로 등록하여 실행하는 방법도 존재합니다.
+
+```bash
+# 서비스 등록
+wiz service regist myapp
+
+# 서비스 시작
+wiz service start myapp
+
+# 서비스 중지
+wiz service stop myapp
+
+# 서비스 상태 확인
+wiz service status myapp
+```
+
+### 자주 사용하는 WIZ 명령
+
+| 명령 | 용도 |
+| --- | --- |
+| `wiz project list` | 워크스페이스의 프로젝트 목록 확인 |
+| `wiz project build --project=main` | 소스 변경 후 일반 빌드 |
+| `wiz project build --project=main --clean` | 앱/API 구조 변경 또는 캐시 문제 시 클린 빌드 |
+| `wiz project npm install --project=main` | 빌드 디렉터리의 npm 의존성 재설치 |
+| `wiz run --port=3000` | 개발 서버 실행 |
+| `wiz bundle --project=main` | 배포용 번들 생성 |
+
+> 모든 `wiz` 명령은 `project/main`이 아니라 `config/`, `public/`, `project/`가 보이는 WIZ 워크스페이스 루트에서 실행합니다.
+
 ## 주요 기능
 
 ### 공통
@@ -90,32 +199,37 @@ Framework: [WIZ Framework](https://github.com/season-framework/wiz) (`season==2.
 | `GET /api/idpcore/presets?protocol=saml` | 속성/클레임 프리셋 |
 | `GET /api/idpcore/saml-attribute-catalog` | SAML attribute OID catalog |
 
-## 프로젝트 구조
+## WIZ 프로젝트 구조
 
 ```text
-src/
-├── app/
-│   ├── layout.empty/          # 인증/프로토콜 후처리용 빈 레이아웃
-│   ├── layout.topnav/         # Test IdP 상단 탭 레이아웃
-│   ├── page.access/           # admin 로그인
-│   ├── page.landing/          # Overview와 임시 계정 관리
-│   ├── page.saml/             # SAML 화면군 라우팅
-│   └── page.oidc/             # OIDC 화면군 라우팅
-├── controller/
-│   ├── base.py                # 세션 초기화
-│   ├── user.py                # 로그인 사용자 검증
-│   └── admin.py               # admin 권한 검증
-├── model/
-│   └── struct.py              # 프로젝트 루트 Struct
-├── portal/
-│   ├── season/                # WIZ 공통 UI, session, auth, ORM
-│   ├── idpcore/               # 공통 사용자, preset, debug, audit
-│   ├── samlidp/               # SAML IdP 모델, UI, route
-│   └── oidcidp/               # OIDC Provider 모델, UI, route
-└── assets/
-    ├── brand/                 # Test IdP favicon/logo
-    ├── font/SUIT/             # SUIT web font
-    └── lang/                  # ko/en language resources
+workspace/                     # WIZ 명령 실행 위치
+├── config/                    # WIZ 서버 설정
+├── public/                    # WIZ 서버 엔트리포인트
+├── ide/                       # 웹 기반 WIZ IDE
+├── plugin/                    # WIZ 플러그인
+└── project/
+    └── main/                  # 이 Git 저장소
+        ├── config/            # 로컬 프로젝트 설정 (Git 제외)
+        ├── data/              # SQLite DB (자동 생성, Git 제외)
+        ├── metadata/          # SAML/OIDC 키·디버그 데이터 (Git 제외)
+        ├── build/             # 개발 빌드 산출물
+        ├── bundle/            # 배포 번들 산출물
+        └── src/
+            ├── app/
+            │   ├── layout.empty/  # 인증/프로토콜 후처리용 빈 레이아웃
+            │   ├── layout.topnav/ # Test IdP 상단 탭 레이아웃
+            │   ├── page.access/   # admin 로그인
+            │   ├── page.landing/  # Overview와 임시 계정 관리
+            │   ├── page.saml/     # SAML 화면군 라우팅
+            │   └── page.oidc/     # OIDC 화면군 라우팅
+            ├── controller/        # 인증·권한 전처리
+            ├── model/             # 프로젝트 루트 Struct
+            ├── portal/
+            │   ├── season/        # WIZ 공통 UI, session, auth, ORM
+            │   ├── idpcore/       # 공통 사용자, preset, debug, audit
+            │   ├── samlidp/       # SAML IdP 모델, UI, route
+            │   └── oidcidp/       # OIDC Provider 모델, UI, route
+            └── assets/            # 브랜드, 폰트, 다국어 리소스
 ```
 
 ## 데이터와 저장소
@@ -139,8 +253,8 @@ src/
 ## 테스트
 
 ```bash
-cd /root/workspace/test-idp/project/main
-/root/miniconda3/envs/test-idp/bin/python -m pytest tests
+cd project/main
+python -m pytest tests
 ```
 
 주요 테스트 범위:
@@ -160,6 +274,113 @@ Test IdP is a test-focused Identity Provider for validating SAML Service Provide
 Live URL: <https://debug-idp.nanoha.kr/>
 
 Framework: [WIZ Framework](https://github.com/season-framework/wiz) (`season==2.5.2`)
+
+## Installation and Running
+
+This repository is an application project placed at `project/main`, not a complete WIZ workspace. The commands below create a fresh workspace following the official WIZ layout and CLI workflow. They assume a Linux or macOS shell.
+
+### 1. Prerequisites
+
+- Git
+- [Miniconda or Anaconda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) (Miniconda recommended)
+- Node.js 18.19.1 or later with npm (Node.js 20 LTS recommended)
+- SAML build libraries on Ubuntu/Debian
+
+```bash
+sudo apt update
+sudo apt install -y git build-essential \
+  pkg-config libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+conda --version
+node --version
+npm --version
+git --version
+```
+
+On macOS, install Xcode Command Line Tools, Miniconda, and use Homebrew to install `node`, `libxml2`, `libxmlsec1`, and `pkg-config`. If the shell has not used `conda activate` before, run `conda init` and reopen the terminal.
+
+### 2. Create the Conda environment and WIZ workspace
+
+```bash
+mkdir test-idp-local
+cd test-idp-local
+
+conda create --name test-idp python=3.12 --yes
+conda activate test-idp
+python --version
+python -m pip install --upgrade pip
+python -m pip install "season==2.5.2" peewee pymysql bcrypt \
+  python3-saml oic pysaml2 lxml signxml cryptography pytest
+
+wiz --version
+wiz create workspace
+cd workspace
+wiz project create --project=main --uri=https://github.com/ImuruKevol/test-idp.git
+```
+
+Python and WIZ are installed inside the `test-idp` Conda environment. Because `season` is distributed through PyPI, install it with `python -m pip` after activating that environment. `wiz create workspace` creates the WIZ `config/`, `public/`, `ide/`, `plugin/`, and `project/` directories. `wiz project create` clones this repository into `project/main` and performs the initial build.
+
+### 3. Configure local storage
+
+Create the Git-ignored SQLite configuration from the included sample. Database files and SAML/OIDC keys are generated automatically under `data/` and `metadata/` on first use.
+
+```bash
+cp project/main/config-sample/database.py project/main/config/database.py
+
+# Set this to a strong password before the first run.
+export TEST_IDP_ADMIN_PASSWORD='replace-with-a-strong-password'
+```
+
+If `TEST_IDP_ADMIN_PASSWORD` is omitted, the initial admin password is generated randomly and cannot be retrieved. If the database already exists, run `python project/main/scripts/change_admin_password.py` to replace it.
+
+### 4. Build and start the development server
+
+```bash
+wiz project build --project=main
+wiz run --port=3000
+```
+
+- Application: <http://127.0.0.1:3000/>
+- WIZ IDE: <http://127.0.0.1:3000/wiz>
+- Stop: press `Ctrl+C` in the server terminal
+
+For later runs, activate the `test-idp` Conda environment and return to the WIZ workspace root.
+
+```bash
+cd test-idp-local
+conda activate test-idp
+cd workspace
+wiz run --port=3000
+```
+
+### 5. Service Daemon Execution
+
+```bash
+# 서비스 등록
+wiz service regist myapp
+
+# 서비스 시작
+wiz service start myapp
+
+# 서비스 중지
+wiz service stop myapp
+
+# 서비스 상태 확인
+wiz service status myapp
+```
+
+### Common WIZ commands
+
+| Command | Purpose |
+| --- | --- |
+| `wiz project list` | List projects in the workspace |
+| `wiz project build --project=main` | Run a normal build after source changes |
+| `wiz project build --project=main --clean` | Clean-build after app/API structure changes or cache issues |
+| `wiz project npm install --project=main` | Reinstall npm dependencies in the build directory |
+| `wiz run --port=3000` | Start the development server |
+| `wiz bundle --project=main` | Create a deployment bundle |
+
+> Run every `wiz` command from the WIZ workspace root where `config/`, `public/`, and `project/` are visible, not from `project/main`.
 
 ## Features
 
@@ -246,32 +467,37 @@ Framework: [WIZ Framework](https://github.com/season-framework/wiz) (`season==2.
 | `GET /api/idpcore/presets?protocol=saml` | Attribute/claim presets |
 | `GET /api/idpcore/saml-attribute-catalog` | SAML attribute OID catalog |
 
-## Architecture
+## WIZ Project Layout
 
 ```text
-src/
-├── app/
-│   ├── layout.empty/          # Empty layout for auth/protocol pages
-│   ├── layout.topnav/         # Test IdP top navigation layout
-│   ├── page.access/           # Admin login
-│   ├── page.landing/          # Overview and temporary account management
-│   ├── page.saml/             # SAML route shell
-│   └── page.oidc/             # OIDC route shell
-├── controller/
-│   ├── base.py                # Session bootstrap
-│   ├── user.py                # Signed-in user guard
-│   └── admin.py               # Admin guard
-├── model/
-│   └── struct.py              # Project root Struct
-├── portal/
-│   ├── season/                # Shared WIZ UI, session, auth, ORM
-│   ├── idpcore/               # Users, presets, debug payloads, audit logs
-│   ├── samlidp/               # SAML IdP models, UI, routes
-│   └── oidcidp/               # OIDC Provider models, UI, routes
-└── assets/
-    ├── brand/                 # Test IdP favicon/logo
-    ├── font/SUIT/             # SUIT web font
-    └── lang/                  # ko/en language resources
+workspace/                     # Run WIZ commands here
+├── config/                    # WIZ server configuration
+├── public/                    # WIZ server entry point
+├── ide/                       # Web-based WIZ IDE
+├── plugin/                    # WIZ plugins
+└── project/
+    └── main/                  # This Git repository
+        ├── config/            # Local project config (Git-ignored)
+        ├── data/              # SQLite databases (generated, Git-ignored)
+        ├── metadata/          # SAML/OIDC keys and debug data (Git-ignored)
+        ├── build/             # Development build output
+        ├── bundle/            # Deployment bundle output
+        └── src/
+            ├── app/
+            │   ├── layout.empty/  # Empty layout for auth/protocol pages
+            │   ├── layout.topnav/ # Test IdP top navigation layout
+            │   ├── page.access/   # Admin login
+            │   ├── page.landing/  # Overview and temporary account management
+            │   ├── page.saml/     # SAML route shell
+            │   └── page.oidc/     # OIDC route shell
+            ├── controller/        # Authentication and authorization guards
+            ├── model/             # Project root Struct
+            ├── portal/
+            │   ├── season/        # Shared WIZ UI, session, auth, ORM
+            │   ├── idpcore/       # Users, presets, debug payloads, audit logs
+            │   ├── samlidp/       # SAML IdP models, UI, routes
+            │   └── oidcidp/       # OIDC Provider models, UI, routes
+            └── assets/            # Brand, fonts, and translations
 ```
 
 ## Storage
@@ -295,8 +521,8 @@ src/
 ## Tests
 
 ```bash
-cd /root/workspace/test-idp/project/main
-/root/miniconda3/envs/test-idp/bin/python -m pytest tests
+cd project/main
+python -m pytest tests
 ```
 
 Covered areas include idpcore data handling, SAML registration/SSO/SLO/security checks, OIDC UI and protocol flow behavior, compact UI templates, rate limits, delete permissions, and mass-assignment protection.

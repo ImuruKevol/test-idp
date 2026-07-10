@@ -5,6 +5,12 @@ import re
 struct = wiz.model("portal/samlidp/struct")
 rate_limiter = wiz.model("portal/idpcore/struct/rate_limiter")
 
+AUTHN_CONTEXT_OPTIONS = [
+    ("REFEDS MFA", "https://refeds.org/profile/mfa"),
+    ("REFEDS SFA", "https://refeds.org/profile/sfa"),
+    ("PasswordProtectedTransport", "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"),
+]
+
 def _client_ip():
     try:
         return wiz.request.ip()
@@ -81,6 +87,36 @@ def _set_session_user(user):
         role=user.get("role", "tester"),
     )
 
+def _request_authn_context_class_ref():
+    return (
+        str(wiz.request.query("authn_context_class_ref", "") or "").strip()
+        or str(wiz.request.query("AuthnContextClassRef", "") or "").strip()
+        or str(wiz.request.query("acr_values", "") or "").strip()
+    )
+
+def _first_authn_context_class_ref(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        source = value.strip()
+        if source == "":
+            return ""
+        try:
+            if source.startswith("["):
+                return _first_authn_context_class_ref(json.loads(source))
+        except Exception:
+            pass
+        candidates = re.split(r"[\r\n,]+", source)
+    elif isinstance(value, (list, tuple)):
+        candidates = value
+    else:
+        candidates = [value]
+    for candidate in candidates:
+        item = str(candidate or "").strip()
+        if item:
+            return item
+    return ""
+
 def _resolve_sso_request_state():
     default_nameid = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
     state = {
@@ -94,6 +130,7 @@ def _resolve_sso_request_state():
         "sign_response": wiz.request.query("sign_response", "true") == "true",
         "sign_assertion": wiz.request.query("sign_assertion", "true") == "true",
         "session_index": wiz.request.query("session_index", ""),
+        "authn_context_class_ref": _request_authn_context_class_ref(),
     }
 
     if any([state["transaction_id"], state["sp_entity_id"], state["acs_url"], state["request_id"]]):
@@ -110,6 +147,8 @@ def _resolve_sso_request_state():
                     requested_nameid = tx.get("nameid_format_requested", "")
                     if requested_nameid:
                         state["nameid_format"] = requested_nameid
+                if not state["authn_context_class_ref"]:
+                    state["authn_context_class_ref"] = _first_authn_context_class_ref(tx.get("authn_context_requested", []))
         return state
 
     method = wiz.request.method()
@@ -126,6 +165,8 @@ def _resolve_sso_request_state():
     state["request_id"] = parsed.get("request_id", "")
     state["relay_state"] = parsed.get("relay_state", "")
     state["nameid_format"] = parsed.get("nameid_format", default_nameid) or default_nameid
+    if not state["authn_context_class_ref"]:
+        state["authn_context_class_ref"] = _first_authn_context_class_ref(parsed.get("authn_context", []))
     return state
 
 def _resolve_login_user():
@@ -164,12 +205,15 @@ def _resolve_login_user():
 
     return _session_sso_user()
 
-def _hidden_sso_inputs(state, extra=None):
+def _hidden_sso_inputs(state, extra=None, exclude=None):
     payload = dict(state)
     if extra:
         payload.update(extra)
+    exclude = set(exclude or [])
     lines = []
     for key, value in payload.items():
+        if key in exclude:
+            continue
         if value is None:
             value = ""
         if isinstance(value, bool):
@@ -179,13 +223,39 @@ def _hidden_sso_inputs(state, extra=None):
         )
     return "\n        ".join(lines)
 
+def _authn_context_options_html():
+    options = []
+    for label, value in AUTHN_CONTEXT_OPTIONS:
+        options.append(f'<option value="{html.escape(value, quote=True)}">{html.escape(label)}</option>')
+    return '<datalist id="authn-context-options">' + "".join(options) + "</datalist>"
+
+def _authn_context_field_html(state, field_id):
+    selected = str(state.get("authn_context_class_ref", "") or "").strip()
+    buttons = []
+    for label, value in AUTHN_CONTEXT_OPTIONS:
+        active_class = " active" if selected == value else ""
+        buttons.append(f"""
+            <button type=\"button\" class=\"preset-button{active_class}\" data-authn-context=\"{html.escape(value, quote=True)}\" onclick=\"this.closest('form').querySelector('[name=authn_context_class_ref]').value=this.dataset.authnContext\">
+                {html.escape(label)}
+            </button>
+        """)
+    return f"""
+        <div class=\"authn-context-box\">
+            <div class=\"field\">
+                <label for=\"{html.escape(field_id, quote=True)}\">AuthnContextClassRef</label>
+                <input id=\"{html.escape(field_id, quote=True)}\" name=\"authn_context_class_ref\" type=\"text\" value=\"{html.escape(selected, quote=True)}\" placeholder=\"https://refeds.org/profile/mfa\" list=\"authn-context-options\" autocomplete=\"off\"/>
+            </div>
+            <div class=\"preset-row\">{''.join(buttons)}</div>
+        </div>
+    """
+
 def _build_sso_prompt_html(state, error_message=""):
     try:
         users = struct.core.user.list_active()
     except Exception:
         users = []
 
-    cards = []
+    account_buttons = []
     for user in users:
         if _is_admin_account(user):
             continue
@@ -193,15 +263,12 @@ def _build_sso_prompt_html(state, error_message=""):
         username = str(user.get("username", "")).strip()
         email_value = str(user.get("email", "")).strip()
         role = str(user.get("role", "tester")).strip() or "tester"
-        cards.append(f"""
-            <form method=\"post\" action=\"/api/saml/sso\" class=\"account-card\">
-                {_hidden_sso_inputs(state, {"selected_user_id": user.get("id", "")})}
-                <button type=\"submit\" class=\"account-button\">
-                    <span class=\"account-name\">{html.escape(display_name)}</span>
-                    <span class=\"account-meta\">{html.escape(username)}{(' · ' + html.escape(email_value)) if email_value else ''}</span>
-                    <span class=\"account-role\">{html.escape(role)}</span>
-                </button>
-            </form>
+        account_buttons.append(f"""
+            <button type=\"submit\" name=\"selected_user_id\" value=\"{html.escape(str(user.get("id", "")), quote=True)}\" class=\"account-button\">
+                <span class=\"account-name\">{html.escape(display_name)}</span>
+                <span class=\"account-meta\">{html.escape(username)}{(' · ' + html.escape(email_value)) if email_value else ''}</span>
+                <span class=\"account-role\">{html.escape(role)}</span>
+            </button>
         """)
 
     error_block = ""
@@ -209,7 +276,7 @@ def _build_sso_prompt_html(state, error_message=""):
         error_block = f'<div class="notice error">{html.escape(error_message)}</div>'
 
     empty_block = ""
-    if len(cards) == 0:
+    if len(account_buttons) == 0:
         empty_block = '<div class="notice">선택 가능한 활성 테스트 계정이 없습니다. 아래 폼으로 로그인하세요.</div>'
 
     service_label = str(state.get("sp_entity_id", "")).strip() or "알 수 없는 서비스"
@@ -311,7 +378,6 @@ def _build_sso_prompt_html(state, error_message=""):
         .notice.error {{ background: rgba(163, 59, 34, 0.12); color: var(--warn); }}
         .section-title {{ font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }}
         .account-list {{ display: grid; gap: 10px; }}
-        .account-card {{ margin: 0; }}
         .account-button {{
             width: 100%;
             border: 1px solid rgba(84, 63, 36, 0.09);
@@ -339,6 +405,26 @@ def _build_sso_prompt_html(state, error_message=""):
             background: #fff;
         }}
         .field input:focus {{ outline: 2px solid rgba(187, 90, 39, 0.18); border-color: rgba(187, 90, 39, 0.42); }}
+        .authn-context-box {{
+            display: grid;
+            gap: 10px;
+            padding: 14px;
+            border-radius: 18px;
+            border: 1px solid rgba(187, 90, 39, 0.18);
+            background: rgba(187, 90, 39, 0.06);
+        }}
+        .preset-row {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+        .preset-button {{
+            border: 1px solid rgba(187, 90, 39, 0.18);
+            border-radius: 999px;
+            background: #fff;
+            color: var(--brand-deep);
+            padding: 7px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }}
+        .preset-button.active {{ background: rgba(187, 90, 39, 0.14); border-color: rgba(187, 90, 39, 0.42); }}
         .submit {{
             width: 100%;
             border: 0;
@@ -381,12 +467,13 @@ def _build_sso_prompt_html(state, error_message=""):
         <section class=\"panel auth\">
             <div class=\"auth-grid\">
                 {error_block}
-                <div class=\"section-title\">빠른 테스트 계정 선택</div>
-                {empty_block}
-                <div class=\"account-list\">{''.join(cards)}</div>
-                <div class=\"divider\">또는</div>
                 <form method=\"post\" action=\"/api/saml/sso\" class=\"auth-grid\">
-                    {_hidden_sso_inputs(state)}
+                    {_hidden_sso_inputs(state, exclude={"authn_context_class_ref"})}
+                    {_authn_context_field_html(state, "authn_context_class_ref")}
+                    <div class=\"section-title\">빠른 테스트 계정 선택</div>
+                    {empty_block}
+                    <div class=\"account-list\">{''.join(account_buttons)}</div>
+                    <div class=\"divider\">또는</div>
                     <div class=\"field\">
                         <label for=\"login_id\">사용자명 또는 이메일</label>
                         <input id=\"login_id\" name=\"login_id\" type=\"text\" placeholder=\"admin\" autocomplete=\"username\"/>
@@ -398,6 +485,7 @@ def _build_sso_prompt_html(state, error_message=""):
                     <button type=\"submit\" class=\"submit\">로그인 후 계속</button>
                     <p class=\"hint\">관리자 계정으로 로그인하거나, 계정 선택 버튼을 누르면 별도 비밀번호 입력 없이 해당 테스트 사용자로 즉시 로그인할 수 있습니다.</p>
                 </form>
+                {_authn_context_options_html()}
             </div>
         </section>
     </div>
@@ -581,6 +669,7 @@ if action == "sso-respond":
     params["sign_response"] = wiz.request.query("sign_response", "true") == "true"
     params["sign_assertion"] = wiz.request.query("sign_assertion", "true") == "true"
     params["session_index"] = wiz.request.query("session_index", "")
+    params["authn_context_class_ref"] = _request_authn_context_class_ref()
 
     try:
         result = struct.process.build_response(params)
@@ -622,6 +711,7 @@ if action == "sso":
             "sign_response": state.get("sign_response", True),
             "sign_assertion": state.get("sign_assertion", True),
             "session_index": state.get("session_index", ""),
+            "authn_context_class_ref": state.get("authn_context_class_ref", ""),
         })
     except Exception as e:
         wiz.response.status(400, message=str(e))

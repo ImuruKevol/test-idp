@@ -73,6 +73,7 @@ def build_response():
     params["sign_response"] = wiz.request.query("sign_response", "true") == "true"
     params["sign_assertion"] = wiz.request.query("sign_assertion", "true") == "true"
     params["session_index"] = wiz.request.query("session_index", "")
+    params["authn_context_class_ref"] = wiz.request.query("authn_context_class_ref", "")
 
     try:
         result = struct.process.build_response(params)

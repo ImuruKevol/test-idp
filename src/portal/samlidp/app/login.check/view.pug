@@ -3,6 +3,19 @@ div(class="space-y-4")
     div(*ngIf="loading", class="flex items-center justify-center py-12")
         span(class="text-[13px] text-zinc-400") 로딩 중...
 
+    div(*ngIf="!loading && mode !== 'result'", class="rounded-lg border border-orange-200 bg-orange-50 p-3")
+        label(class="text-[13px] font-semibold text-orange-900") SAMLResponse AuthnContextClassRef
+        input([(ngModel)]="authnContextClassRef",
+            (ngModelChange)="service.render()",
+            placeholder="https://refeds.org/profile/mfa",
+            class="mt-2 w-full rounded-lg border border-orange-200 bg-white px-3 py-2 font-mono text-xs text-zinc-800 placeholder:text-zinc-400 focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-400")
+        div(class="mt-2 flex flex-wrap gap-2")
+            button(*ngFor="let option of authnContextOptions",
+                type="button",
+                class="rounded-lg border px-2.5 py-1 text-xs font-medium transition",
+                [class]="authnContextClassRef === option.value ? 'border-orange-400 bg-white text-orange-800' : 'border-orange-200 bg-orange-50 text-orange-700 hover:bg-white'",
+                (click)="setAuthnContextClassRef(option.value)") {{option.label}}
+
     // === INPUT MODE ===
     div(*ngIf="!loading && mode === 'input'")
         h2(class="text-lg font-semibold text-zinc-950") SSO 디버그
@@ -133,6 +146,10 @@ div(class="space-y-4")
                 div(class="flex gap-2")
                     span(class="font-medium text-zinc-600 w-32") IsPassive
                     span(class="text-zinc-800") {{parsedRequest.is_passive}}
+                div(*ngIf="parsedRequest.authn_context && parsedRequest.authn_context.length > 0", class="flex gap-2")
+                    span(class="font-medium text-zinc-600 w-32") AuthnContext
+                    div(class="min-w-0 space-y-1")
+                        span(*ngFor="let acr of parsedRequest.authn_context", class="block text-zinc-800 break-all") {{acr}}
 
         // Response Settings
         div(class="space-y-4")
@@ -228,6 +245,9 @@ div(class="space-y-4")
                 div(class="rounded-xl border border-zinc-200 bg-white p-4")
                     p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") Session Index
                     p(class="mt-1 text-xs text-zinc-800") {{responseResult.session_index}}
+                div(*ngIf="responseResult.authn_context_class_ref", class="rounded-xl border border-zinc-200 bg-white p-4 md:col-span-2")
+                    p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") AuthnContextClassRef
+                    p(class="mt-1 text-xs text-zinc-800 break-all") {{responseResult.authn_context_class_ref}}
 
             div(class="flex flex-wrap gap-2")
                 span(class="rounded-full px-2.5 py-1 text-xs font-medium",

@@ -6,6 +6,7 @@ import re
 import pytest
 import sys
 import os
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
 from conftest import WizClient, ADMIN_SESSION
@@ -41,6 +42,26 @@ SAMPLE_AUTHN_REQUEST = """<samlp:AuthnRequest
     Destination="https://idp.test-idp.local/api/saml/sso">
   <saml:Issuer>https://pytest-sp.example.com/metadata</saml:Issuer>
   <samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" AllowCreate="true"/>
+</samlp:AuthnRequest>"""
+
+
+REFEDS_MFA_AUTHN_CONTEXT = "https://refeds.org/profile/mfa"
+REFEDS_SFA_AUTHN_CONTEXT = "https://refeds.org/profile/sfa"
+PROJECT = Path(__file__).resolve().parents[1]
+
+SAMPLE_AUTHN_REQUEST_REFEDS = f"""<samlp:AuthnRequest
+    xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+    xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+    ID="_pytest_req_refeds_001"
+    Version="2.0"
+    IssueInstant="2026-05-27T12:00:00Z"
+    AssertionConsumerServiceURL="https://pytest-sp.example.com/acs"
+    Destination="https://idp.test-idp.local/api/saml/sso">
+  <saml:Issuer>https://pytest-sp.example.com/metadata</saml:Issuer>
+  <samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" AllowCreate="true"/>
+  <samlp:RequestedAuthnContext Comparison="exact">
+    <saml:AuthnContextClassRef>{REFEDS_MFA_AUTHN_CONTEXT}</saml:AuthnContextClassRef>
+  </samlp:RequestedAuthnContext>
 </samlp:AuthnRequest>"""
 
 
@@ -94,7 +115,7 @@ def _ensure_sample_sp(client):
 
 
 def _extract_hidden_input_value(html_text, name):
-    match = re.search(rf'name="{re.escape(name)}" value="([^"]*)"', html_text)
+    match = re.search(rf'name="{re.escape(name)}"[^>]* value="([^"]*)"', html_text)
     assert match is not None, f"{name} hidden input not found"
     return match.group(1)
 
@@ -111,6 +132,7 @@ def _extract_sso_prompt_state(html_text):
         "sign_response",
         "sign_assertion",
         "session_index",
+        "authn_context_class_ref",
     ]
     return {key: _extract_hidden_input_value(html_text, key) for key in keys}
 
@@ -278,6 +300,19 @@ class TestSSOFlow:
         assert parsed["relay_state"] == "test_relay_state"
         assert parsed["nameid_format"] == "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
 
+    def test_parse_refeds_authn_context_request(self, client):
+        """AuthnRequest의 REFEDS AuthnContextClassRef를 파싱한다."""
+        encoded = base64.b64encode(SAMPLE_AUTHN_REQUEST_REFEDS.encode("utf-8")).decode("utf-8")
+        resp = client.app_api("portal.samlidp.login.check", "parse_request", {
+            "SAMLRequest": encoded,
+            "binding": "POST",
+        })
+        body = client.assert_ok(resp)
+        parsed = body["data"]["data"]
+
+        assert parsed["request_id"] == "_pytest_req_refeds_001"
+        assert parsed["authn_context"] == [REFEDS_MFA_AUTHN_CONTEXT]
+
     def test_build_response(self, client):
         """SAMLResponse 생성"""
         # AuthnRequest 파싱
@@ -324,6 +359,61 @@ class TestSSOFlow:
         assert result["signed_assertion"] is True
         assert result["session_index"]
         assert result["acs_url"] == "https://pytest-sp.example.com/acs"
+
+    def test_build_response_with_refeds_authn_context_input(self, client):
+        """입력한 REFEDS AuthnContextClassRef를 SAMLResponse에 포함한다."""
+        encoded = base64.b64encode(SAMPLE_AUTHN_REQUEST.encode("utf-8")).decode("utf-8")
+        resp = client.app_api("portal.samlidp.login.check", "parse_request", {
+            "SAMLRequest": encoded,
+            "binding": "POST",
+        })
+        parsed = client.assert_ok(resp)["data"]["data"]
+
+        admin_id = _get_admin_user_id(client)
+
+        resp = client.app_api("portal.samlidp.login.check", "build_response", {
+            "user_id": admin_id,
+            "sp_entity_id": parsed["issuer"],
+            "acs_url": parsed["acs_url"],
+            "request_id": parsed["request_id"],
+            "transaction_id": parsed["transaction_id"],
+            "nameid_format": parsed["nameid_format"],
+            "authn_context_class_ref": REFEDS_MFA_AUTHN_CONTEXT,
+            "sign_response": "true",
+            "sign_assertion": "true",
+        })
+        body = client.assert_ok(resp)
+        result = body["data"]["data"]
+
+        assert result["authn_context_class_ref"] == REFEDS_MFA_AUTHN_CONTEXT
+        assert f"<saml:AuthnContextClassRef>{REFEDS_MFA_AUTHN_CONTEXT}</saml:AuthnContextClassRef>" in result["response_xml"]
+
+    def test_build_response_uses_requested_refeds_authn_context_by_default(self, client):
+        """AuthnRequest가 REFEDS 값을 요청하면 별도 입력 없이 응답에 반영한다."""
+        encoded = base64.b64encode(SAMPLE_AUTHN_REQUEST_REFEDS.encode("utf-8")).decode("utf-8")
+        resp = client.app_api("portal.samlidp.login.check", "parse_request", {
+            "SAMLRequest": encoded,
+            "binding": "POST",
+        })
+        parsed = client.assert_ok(resp)["data"]["data"]
+
+        admin_id = _get_admin_user_id(client)
+
+        resp = client.app_api("portal.samlidp.login.check", "build_response", {
+            "user_id": admin_id,
+            "sp_entity_id": parsed["issuer"],
+            "acs_url": parsed["acs_url"],
+            "request_id": parsed["request_id"],
+            "transaction_id": parsed["transaction_id"],
+            "nameid_format": parsed["nameid_format"],
+            "sign_response": "true",
+            "sign_assertion": "true",
+        })
+        body = client.assert_ok(resp)
+        result = body["data"]["data"]
+
+        assert result["authn_context_class_ref"] == REFEDS_MFA_AUTHN_CONTEXT
+        assert f"<saml:AuthnContextClassRef>{REFEDS_MFA_AUTHN_CONTEXT}</saml:AuthnContextClassRef>" in result["response_xml"]
 
     def test_response_contains_attributes(self, client):
         """Response에 Attribute 포함 확인"""
@@ -459,6 +549,16 @@ class TestSSOFlow:
 class TestLoginCheckAPI:
     """Test login.check portal app APIs."""
 
+    def test_logincheck_template_exposes_authn_context_before_parse(self):
+        template = (PROJECT / "src/portal/samlidp/app/login.check/view.pug").read_text(encoding="utf-8")
+        source = (PROJECT / "src/portal/samlidp/app/login.check/view.ts").read_text(encoding="utf-8")
+
+        assert template.count("SAMLResponse AuthnContextClassRef") == 1
+        assert '[(ngModel)]="authnContextClassRef"' in template
+        assert template.index("SAMLResponse AuthnContextClassRef") < template.index("AuthnRequest 파싱")
+        assert REFEDS_MFA_AUTHN_CONTEXT in source
+        assert REFEDS_SFA_AUTHN_CONTEXT in source
+
     def test_sp_list(self, client):
         resp = client.app_api("portal.samlidp.login.check", "sp_list")
         body = client.assert_ok(resp)
@@ -509,6 +609,7 @@ class TestSAMLRoute:
             assert "admin@test-idp.local" not in resp.text
             assert 'name="SAMLResponse"' not in resp.text
             assert _extract_hidden_input_value(resp.text, "relay_state") == "route_test"
+            assert _extract_hidden_input_value(resp.text, "authn_context_class_ref") == ""
         finally:
             _delete_user(client, user)
 
@@ -554,6 +655,62 @@ class TestSAMLRoute:
         decoded = base64.b64decode(saml_response).decode("utf-8")
         assert "<samlp:Response" in decoded
         assert "admin@test-idp.local" in decoded
+
+    def test_sso_prompt_preserves_refeds_authn_context_input(self, client, anon_client, known_admin_password):
+        """SSO 프롬프트 흐름에서 REFEDS AuthnContextClassRef 입력값을 유지한다."""
+        client.assert_ok(client.route("/api/idpcore/seed"))
+        _ensure_sample_sp(client)
+        encoded = base64.b64encode(SAMPLE_AUTHN_REQUEST.encode("utf-8")).decode("utf-8")
+        prompt = anon_client.route("/api/saml/sso", data={
+            "SAMLRequest": encoded,
+            "RelayState": "route_refeds",
+            "authn_context_class_ref": REFEDS_MFA_AUTHN_CONTEXT,
+        }, method="POST")
+        state = _extract_sso_prompt_state(prompt.text)
+        assert state["authn_context_class_ref"] == REFEDS_MFA_AUTHN_CONTEXT
+
+        resp = anon_client.route("/api/saml/sso", data={
+            **state,
+            "login_id": "admin",
+            "password": known_admin_password,
+        }, method="POST")
+
+        assert resp.status_code == 200
+        saml_response = _extract_hidden_input_value(resp.text, "SAMLResponse")
+        decoded = base64.b64decode(saml_response).decode("utf-8")
+        assert f"<saml:AuthnContextClassRef>{REFEDS_MFA_AUTHN_CONTEXT}</saml:AuthnContextClassRef>" in decoded
+
+    def test_sso_prompt_allows_authn_context_on_quick_account_selection(self, client, anon_client):
+        """계정 선택 화면에서 입력한 AuthnContextClassRef를 빠른 계정 선택 응답에 반영한다."""
+        _ensure_sample_sp(client)
+        user = _create_temp_user(client, username="saml_refeds_quick")
+        encoded = base64.b64encode(SAMPLE_AUTHN_REQUEST.encode("utf-8")).decode("utf-8")
+
+        try:
+            prompt = anon_client.route("/api/saml/sso", data={
+                "SAMLRequest": encoded,
+                "RelayState": "route_refeds_quick",
+            }, method="POST")
+            state = _extract_sso_prompt_state(prompt.text)
+
+            assert 'name="authn_context_class_ref"' in prompt.text
+            assert prompt.text.count('name="authn_context_class_ref"') == 1
+            assert f'data-authn-context="{REFEDS_MFA_AUTHN_CONTEXT}"' in prompt.text
+            assert f'data-authn-context="{REFEDS_SFA_AUTHN_CONTEXT}"' in prompt.text
+
+            resp = anon_client.route("/api/saml/sso", data={
+                **state,
+                "selected_user_id": user["id"],
+                "authn_context_class_ref": REFEDS_SFA_AUTHN_CONTEXT,
+            }, method="POST")
+
+            assert resp.status_code == 200
+            saml_response = _extract_hidden_input_value(resp.text, "SAMLResponse")
+            decoded = base64.b64decode(saml_response).decode("utf-8")
+            assert f"<saml:AuthnContextClassRef>{REFEDS_SFA_AUTHN_CONTEXT}</saml:AuthnContextClassRef>" in decoded
+            assert user["email"] in decoded
+        finally:
+            _delete_user(client, user)
 
     def test_sso_endpoint(self, client):
         """SSO 엔드포인트에 AuthnRequest 전송"""

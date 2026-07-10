@@ -41,3 +41,6 @@
 | 2026-05-20 | 003 | README WIZ Framework 정보 추가 및 캡처 도구 문구 정리 | [상세](devlog/2026-05-20/003-readme-framework-note.md) |
 | 2026-05-20 | 004 | GitHub 공개 전 민감 정보 및 불필요 산출물 정리 | [상세](devlog/2026-05-20/004-github-publish-sanitization.md) |
 | 2026-05-20 | 005 | GitHub 공개용 MIT 라이센스 파일 추가 | [상세](devlog/2026-05-20/005-mit-license.md) |
+| 2026-05-27 | 001 | SAML REFEDS AuthnContextClassRef 입력 및 응답 반영 추가 | [상세](devlog/2026-05-27/001-saml-refeds-authn-context-class-ref.md) |
+| 2026-05-27 | 002 | SAML 로그인 화면 AuthnContextClassRef 설정 노출 개선 | [상세](devlog/2026-05-27/002-saml-authn-context-ui-visibility.md) |
+| 2026-05-27 | 003 | SAML AuthnContextClassRef 입력 영역 중복 제거 | [상세](devlog/2026-05-27/003-saml-authn-context-single-input.md) |

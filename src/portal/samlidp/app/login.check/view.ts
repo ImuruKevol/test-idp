@@ -24,6 +24,12 @@ export class Component implements OnInit {
     public signResponse: boolean = true;
     public signAssertion: boolean = true;
     public sessionIndex: string = '';
+    public authnContextClassRef: string = 'urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport';
+    public authnContextOptions: any[] = [
+        { label: 'REFEDS MFA', value: 'https://refeds.org/profile/mfa' },
+        { label: 'REFEDS SFA', value: 'https://refeds.org/profile/sfa' },
+        { label: 'PasswordProtectedTransport', value: 'urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport' },
+    ];
     public attributeOverrides: string = '';
 
     // IdP Initiated
@@ -100,6 +106,9 @@ export class Component implements OnInit {
             if (res.code === 200) {
                 this.parsedRequest = res.data.data || res.data;
                 this.nameidFormat = this.parsedRequest.nameid_format || this.nameidFormat;
+                if (this.parsedRequest.authn_context && this.parsedRequest.authn_context.length > 0) {
+                    this.authnContextClassRef = this.parsedRequest.authn_context[0];
+                }
                 this.mode = 'respond';
             } else {
                 await this.service.modal.error(res.data?.message || 'AuthnRequest 파싱에 실패했습니다.');
@@ -132,6 +141,7 @@ export class Component implements OnInit {
             sign_response: this.signResponse ? 'true' : 'false',
             sign_assertion: this.signAssertion ? 'true' : 'false',
             session_index: this.sessionIndex,
+            authn_context_class_ref: this.authnContextClassRef,
             attribute_overrides: this.attributeOverrides,
         };
 
@@ -186,6 +196,11 @@ export class Component implements OnInit {
         try {
             await navigator.clipboard.writeText(text);
         } catch (e) { }
+    }
+
+    public async setAuthnContextClassRef(value: string) {
+        this.authnContextClassRef = value;
+        await this.service.render();
     }
 
     public onSpChange() {

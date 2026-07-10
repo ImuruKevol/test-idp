@@ -16,6 +16,7 @@ NS = {
 }
 
 MAX_XML_SIZE = 256 * 1024  # 256KB
+DEFAULT_AUTHN_CONTEXT_CLASS_REF = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"
 
 def _secure_xml_parser():
     return etree.XMLParser(
@@ -106,6 +107,44 @@ class Process:
                 return location
 
         return ""
+
+    def _first_authn_context_class_ref(self, value):
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            source = value.strip()
+            if source == "":
+                return ""
+            if source.startswith("["):
+                try:
+                    parsed = json.loads(source)
+                    return self._first_authn_context_class_ref(parsed)
+                except Exception:
+                    pass
+            candidates = re.split(r"[\r\n,]+", source)
+        elif isinstance(value, (list, tuple)):
+            candidates = value
+        else:
+            candidates = [value]
+
+        for candidate in candidates:
+            item = str(candidate or "").strip()
+            if item:
+                return item
+        return ""
+
+    def _normalize_authn_context_class_ref(self, value="", requested=None):
+        selected = self._first_authn_context_class_ref(value)
+        if selected == "":
+            selected = self._first_authn_context_class_ref(requested)
+        if selected == "":
+            selected = DEFAULT_AUTHN_CONTEXT_CLASS_REF
+
+        if len(selected) > 512:
+            raise Exception("AuthnContextClassRef 값이 너무 깁니다.")
+        if re.search(r"\s", selected):
+            raise Exception("AuthnContextClassRef 값에는 공백을 포함할 수 없습니다.")
+        return selected
 
     def _resolve_template(self, value, user):
         if isinstance(value, list):
@@ -236,6 +275,18 @@ class Process:
         sign_response = params.get("sign_response", True)
         sign_assertion = params.get("sign_assertion", True)
         session_index_custom = params.get("session_index", "")
+        authn_context_requested = params.get("authn_context_requested", [])
+        if not params.get("authn_context_class_ref") and tx_id:
+            try:
+                tx = self.get_transaction(tx_id)
+                if tx:
+                    authn_context_requested = tx.get("authn_context_requested", authn_context_requested)
+            except Exception:
+                pass
+        authn_context_class_ref = self._normalize_authn_context_class_ref(
+            params.get("authn_context_class_ref", ""),
+            authn_context_requested,
+        )
 
         sp_entity_id = self._resolve_sp_entity_id(sp_entity_id, acs_url)
         acs_url = self._resolve_acs_url(acs_url, sp_entity_id)
@@ -364,7 +415,7 @@ class Process:
         authn_stmt.set("SessionNotOnOrAfter", session_not_after_str)
         authn_ctx = etree.SubElement(authn_stmt, f"{{{NS['saml']}}}AuthnContext")
         authn_ctx_ref = etree.SubElement(authn_ctx, f"{{{NS['saml']}}}AuthnContextClassRef")
-        authn_ctx_ref.text = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"
+        authn_ctx_ref.text = authn_context_class_ref
 
         if attributes:
             attr_stmt = etree.SubElement(assertion, f"{{{NS['saml']}}}AttributeStatement")
@@ -442,6 +493,7 @@ class Process:
             "relay_state": relay_state,
             "nameid_value": nameid_value,
             "nameid_format": nameid_format,
+            "authn_context_class_ref": authn_context_class_ref,
             "attributes": attributes,
             "raw_response_key": resp_key,
             "signed_response": sign_response,

@@ -4,7 +4,7 @@ Test IdP는 SAML Service Provider(SP)와 OpenID Connect Relying Party(RP)를 검
 
 Live URL: <https://debug-idp.nanoha.kr/>
 
-Framework: [WIZ Framework](https://github.com/season-framework/wiz) (`season==2.5.2`)
+Framework: [WIZ Framework](https://github.com/season-framework/wiz) (`season==2.5.1`)
 
 ## 설치 및 실행
 
@@ -28,23 +28,31 @@ n stable
 apt purge nodejs npm
 # nodejs, npm 설치 후 터미널 종료 및 재접속 필수
 
-conda --version
 node --version
 npm --version
-git --version
 ```
 
-macOS에서는 Xcode Command Line Tools와 Homebrew를 준비한 뒤 Miniconda와 `node`, `libxml2`, `libxmlsec1`, `pkg-config`를 설치합니다. `conda activate`를 처음 사용하는 셸이라면 `conda init` 실행 후 터미널을 다시 엽니다.
+### 2. WIZ 설치 및 워크스페이스 생성
 
-### 2. Conda 환경과 WIZ 워크스페이스 구성
+WIZ와 프로젝트 의존성이 시스템 Python과 섞이지 않도록 전용 Conda 환경을 사용합니다. 이미 Conda가 설치되어 있다면 Miniconda 설치 부분은 건너뜁니다.
 
 ```bash
-mkdir test-idp-local
-cd test-idp-local
+# Miniconda 설치(Linux x86_64)
+curl -fsSLo /tmp/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash /tmp/miniconda.sh -b -p "$HOME/miniconda3"
+rm -f /tmp/miniconda.sh
 
+# 쉘에 conda init
+$HOME/miniconda3/bin/conda init
+
+# conda terms accept
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
+# 프로젝트 전용 환경 생성 및 활성화
 conda create -y -n test-idp python=3.14
 conda activate test-idp
-pip install season==2.5.2
+pip install season==2.5.1
 
 python --version
 wiz --version
@@ -52,9 +60,8 @@ wiz --version
 wiz create workspace
 cd workspace
 wiz project create --project=main --uri=https://github.com/ImuruKevol/test-idp.git
+pip install -r project/main/requirements.txt
 ```
-
-Python과 WIZ는 `test-idp` Conda 환경 안에 설치됩니다. `season`은 PyPI로 배포되므로 Conda 환경을 활성화한 상태에서 `python -m pip`로 설치합니다. `wiz create workspace`는 `config/`, `public/`, `ide/`, `plugin/`, `project/`로 이루어진 WIZ 워크스페이스를 만들고, `wiz project create`는 이 저장소를 `project/main`으로 가져와 초기 빌드를 수행합니다.
 
 ### 3. 로컬 설정
 
@@ -62,12 +69,19 @@ Git에서 제외되는 SQLite 설정을 샘플로부터 생성합니다. DB 파�
 
 ```bash
 cp project/main/config-sample/database.py project/main/config/database.py
-
-# 첫 실행 전에 반드시 원하는 관리자 비밀번호로 변경하세요.
-export TEST_IDP_ADMIN_PASSWORD='replace-with-a-strong-password'
 ```
 
-`TEST_IDP_ADMIN_PASSWORD`를 지정하지 않으면 초기 admin 비밀번호가 임의 생성되어 확인할 수 없습니다. 이미 DB를 생성한 뒤 비밀번호를 바꾸려면 `python project/main/scripts/change_admin_password.py`를 실행합니다.
+관리자 비밀번호는 다음 두 방법 중 하나로 설정합니다.
+
+```bash
+# 방법 1: 최초 실행 전에 환경변수로 지정
+export TEST_IDP_ADMIN_PASSWORD='replace-with-a-strong-password'
+
+# 방법 2: 대화형 변경 스크립트 실행
+python project/main/scripts/change_admin_password.py
+```
+
+변경 스크립트는 새 설치처럼 DB와 admin 계정이 아직 없으면 WIZ 모델을 먼저 로드해 자동 초기화합니다. 이때 `project/main/config/database.py`와 Python 의존성 설치가 완료되어 있어야 합니다. 환경변수와 변경 스크립트를 모두 사용하지 않으면 초기 admin 비밀번호가 임의 생성되어 확인할 수 없습니다.
 
 ### 4. 빌드와 개발 서버 실행
 
@@ -254,280 +268,3 @@ workspace/                     # WIZ 명령 실행 위치
 
 - 초기 관리자 비밀번호는 `TEST_IDP_ADMIN_PASSWORD` 환경 변수로 설정하거나 Overview의 관리자 비밀번호 변경 기능으로 교체하세요.
 - 임시 사용자, SAML SP, OIDC RP의 기본 유효기간은 24시간입니다.
-
-## 테스트
-
-```bash
-cd project/main
-python -m pytest tests
-```
-
-주요 테스트 범위:
-
-- idpcore 사용자/프리셋/임시 계정
-- SAML SP 등록, SSO, SLO, XML 보안 검증
-- OIDC RP UI, authorize, token, userinfo
-- compact UI template 검증
-- rate limit, 삭제 권한, mass assignment 방어
-
----
-
-# Test IdP (English)
-
-Test IdP is a test-focused Identity Provider for validating SAML Service Providers and OpenID Connect Relying Parties. It lets SP/RP owners verify registration, metadata/discovery publication, SSO, token issuance, userinfo, logout, and raw XML/JWT debugging without depending on an external production IdP.
-
-Live URL: <https://debug-idp.nanoha.kr/>
-
-Framework: [WIZ Framework](https://github.com/season-framework/wiz) (`season==2.5.2`)
-
-## Installation and Running
-
-This repository is an application project placed at `project/main`, not a complete WIZ workspace. The commands below create a fresh workspace following the official WIZ layout and CLI workflow. They assume a Linux or macOS shell.
-
-### 1. Prerequisites
-
-- Git
-- [Miniconda or Anaconda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) (Miniconda recommended)
-- Node.js 18.19.1 or later with npm (Node.js 20 LTS recommended)
-- SAML build libraries on Ubuntu/Debian
-
-```bash
-sudo apt update
-sudo apt install -y git build-essential \
-  pkg-config libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-conda --version
-node --version
-npm --version
-git --version
-```
-
-On macOS, install Xcode Command Line Tools, Miniconda, and use Homebrew to install `node`, `libxml2`, `libxmlsec1`, and `pkg-config`. If the shell has not used `conda activate` before, run `conda init` and reopen the terminal.
-
-### 2. Create the Conda environment and WIZ workspace
-
-```bash
-mkdir test-idp-local
-cd test-idp-local
-
-conda create --name test-idp python=3.12 --yes
-conda activate test-idp
-python --version
-python -m pip install --upgrade pip
-python -m pip install "season==2.5.2" peewee pymysql bcrypt \
-  python3-saml oic pysaml2 lxml signxml cryptography pytest
-
-wiz --version
-wiz create workspace
-cd workspace
-wiz project create --project=main --uri=https://github.com/ImuruKevol/test-idp.git
-```
-
-Python and WIZ are installed inside the `test-idp` Conda environment. Because `season` is distributed through PyPI, install it with `python -m pip` after activating that environment. `wiz create workspace` creates the WIZ `config/`, `public/`, `ide/`, `plugin/`, and `project/` directories. `wiz project create` clones this repository into `project/main` and performs the initial build.
-
-### 3. Configure local storage
-
-Create the Git-ignored SQLite configuration from the included sample. Database files and SAML/OIDC keys are generated automatically under `data/` and `metadata/` on first use.
-
-```bash
-cp project/main/config-sample/database.py project/main/config/database.py
-
-# Set this to a strong password before the first run.
-export TEST_IDP_ADMIN_PASSWORD='replace-with-a-strong-password'
-```
-
-If `TEST_IDP_ADMIN_PASSWORD` is omitted, the initial admin password is generated randomly and cannot be retrieved. If the database already exists, run `python project/main/scripts/change_admin_password.py` to replace it.
-
-### 4. Build and start the development server
-
-```bash
-wiz project build --project=main
-wiz run --port=3000
-```
-
-- Application: <http://127.0.0.1:3000/>
-- WIZ IDE: <http://127.0.0.1:3000/wiz>
-- Stop: press `Ctrl+C` in the server terminal
-
-For later runs, activate the `test-idp` Conda environment and return to the WIZ workspace root.
-
-```bash
-cd test-idp-local
-conda activate test-idp
-cd workspace
-wiz run --port=3000
-```
-
-### 5. Service Daemon Execution
-
-```bash
-# 서비스 등록
-wiz service regist myapp
-
-# 서비스 시작
-wiz service start myapp
-
-# 서비스 중지
-wiz service stop myapp
-
-# 서비스 상태 확인
-wiz service status myapp
-```
-
-### Common WIZ commands
-
-| Command | Purpose |
-| --- | --- |
-| `wiz project list` | List projects in the workspace |
-| `wiz project build --project=main` | Run a normal build after source changes |
-| `wiz project build --project=main --clean` | Clean-build after app/API structure changes or cache issues |
-| `wiz project npm install --project=main` | Reinstall npm dependencies in the build directory |
-| `wiz run --port=3000` | Start the development server |
-| `wiz bundle --project=main` | Create a deployment bundle |
-
-> Run every `wiz` command from the WIZ workspace root where `config/`, `public/`, and `project/` are visible, not from `project/main`.
-
-## Features
-
-### Shared Core
-
-- Create, edit, and delete temporary test accounts with a default 24-hour TTL
-- Generate protocol-ready SAML attributes and OIDC claims from presets
-- Clean up expired test accounts, SPs, and RPs from the admin console
-- Extend validity or mark selected entries as permanent
-- Store raw XML/JWT debug payloads and audit events
-- Apply IP-based delete restrictions and rate limits
-- Provide Korean/English resources and a compact operations UI
-
-### SAML IdP
-
-- Register SP metadata by XML upload or paste
-- Parse Entity ID, ACS, SLO, certificates, and RequestedAttribute entries
-- Publish IdP metadata XML
-- Parse AuthnRequest values, preserve RelayState, and issue SAMLResponse payloads
-- Handle Redirect/POST SSO and SLO flows
-- Save and inspect raw SAML request/response XML
-
-### OpenID Connect Provider
-
-- Register, update, and delete RP clients
-- Manage redirect URIs, response types, grant types, scopes, and auth methods
-- Publish discovery document and JWKS
-- Process authorization code + PKCE flows
-- Issue access tokens and ID tokens from the token endpoint
-- Return userinfo from bearer access tokens
-- Validate end-session logout redirects
-- Store authorize/token/userinfo/logout debug bundles
-
-## Application Routes
-
-| Path | Purpose |
-| --- | --- |
-| `/` | Overview, protocol entry points, temporary test accounts |
-| `/access` | Admin login |
-| `/saml/register` | SP metadata registration and SP list |
-| `/saml/publish` | IdP metadata, SSO/SLO endpoints, certificate, XML |
-| `/saml/logincheck` | AuthnRequest parsing and SAMLResponse test flow |
-| `/saml/logoutcheck` | SAML LogoutRequest/LogoutResponse test flow |
-| `/oidc/register` | RP registration and credential management |
-| `/oidc/publish` | OIDC discovery, JWKS, endpoint contract |
-| `/oidc/authorizecheck` | Authorize request, claim release, token preview |
-| `/oidc/logoutcheck` | OIDC logout request and post logout redirect validation |
-
-## Protocol Endpoints
-
-### SAML
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/saml/metadata` | IdP metadata XML |
-| `GET/POST /api/saml/sso` | Receive AuthnRequest and issue SAMLResponse |
-| `GET/POST /api/saml/slo` | Process SAML Single Logout |
-| `GET /api/saml/sp-list` | List registered SPs |
-| `POST /api/saml/sp-register` | Register SP metadata |
-| `GET /api/saml/debug-raw` | Read stored SAML raw XML |
-
-### OIDC
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /.well-known/openid-configuration` | OIDC discovery document |
-| `GET /api/oidc/jwks` | Public JWKS |
-| `GET/POST /api/oidc/authorize` | Handle authorize requests |
-| `POST /api/oidc/token` | Verify authorization code and PKCE, then issue tokens |
-| `GET /api/oidc/userinfo` | Return userinfo for access tokens |
-| `GET/POST /api/oidc/logout` | Process end-session logout |
-| `GET /api/oidc/debug/raw/<key>` | Read OIDC raw debug bundle |
-
-### Shared API
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/idpcore/info` | Package status and data counts |
-| `GET /api/idpcore/users` | Active test users |
-| `GET /api/idpcore/users-temporary` | Temporary test users |
-| `POST /api/idpcore/user-create-temporary` | Create a temporary test user |
-| `POST /api/idpcore/user-update` | Update a test user |
-| `POST /api/idpcore/user-delete` | Delete a test user |
-| `GET /api/idpcore/presets?protocol=saml` | Attribute/claim presets |
-| `GET /api/idpcore/saml-attribute-catalog` | SAML attribute OID catalog |
-
-## WIZ Project Layout
-
-```text
-workspace/                     # Run WIZ commands here
-├── config/                    # WIZ server configuration
-├── public/                    # WIZ server entry point
-├── ide/                       # Web-based WIZ IDE
-├── plugin/                    # WIZ plugins
-└── project/
-    └── main/                  # This Git repository
-        ├── config/            # Local project config (Git-ignored)
-        ├── data/              # SQLite databases (generated, Git-ignored)
-        ├── metadata/          # SAML/OIDC keys and debug data (Git-ignored)
-        ├── build/             # Development build output
-        ├── bundle/            # Deployment bundle output
-        └── src/
-            ├── app/
-            │   ├── layout.empty/  # Empty layout for auth/protocol pages
-            │   ├── layout.topnav/ # Test IdP top navigation layout
-            │   ├── page.access/   # Admin login
-            │   ├── page.landing/  # Overview and temporary account management
-            │   ├── page.saml/     # SAML route shell
-            │   └── page.oidc/     # OIDC route shell
-            ├── controller/        # Authentication and authorization guards
-            ├── model/             # Project root Struct
-            ├── portal/
-            │   ├── season/        # Shared WIZ UI, session, auth, ORM
-            │   ├── idpcore/       # Users, presets, debug payloads, audit logs
-            │   ├── samlidp/       # SAML IdP models, UI, routes
-            │   └── oidcidp/       # OIDC Provider models, UI, routes
-            └── assets/            # Brand, fonts, and translations
-```
-
-## Storage
-
-| Path | Contents |
-| --- | --- |
-| `data/idpcore.db` | Test users, presets, debug payloads, audit logs |
-| `data/samlidp.db` | SAML SP registry and SAML transactions |
-| `data/oidcidp.db` | OIDC RP clients, authorization codes, token logs |
-| `metadata/saml/idp/` | SAML IdP key/certificate |
-| `metadata/saml/sp/` | Registered SP metadata XML |
-| `metadata/oidc/` | OIDC signing key and JWKS |
-| `metadata/oidc/debug/` | OIDC raw debug JSON |
-| `metadata/debug/` | SAML raw request/response XML |
-
-## Development Notes
-
-- Set the initial admin password with `TEST_IDP_ADMIN_PASSWORD` or rotate it from the Overview admin password dialog.
-- Temporary users, SAML SPs, and OIDC RPs default to a 24-hour validity window.
-
-## Tests
-
-```bash
-cd project/main
-python -m pytest tests
-```
-
-Covered areas include idpcore data handling, SAML registration/SSO/SLO/security checks, OIDC UI and protocol flow behavior, compact UI templates, rate limits, delete permissions, and mass-assignment protection.

@@ -46,3 +46,4 @@
 | 2026-05-27 | 003 | SAML AuthnContextClassRef 입력 영역 중복 제거 | [상세](devlog/2026-05-27/003-saml-authn-context-single-input.md) |
 | 2026-07-10 | 001 | README에 WIZ 기반 설치·실행 가이드와 재현 가능한 DB 설정 추가 | [상세](devlog/2026-07-10/001-readme-installation-guide.md) |
 | 2026-07-10 | 002 | README Python 환경 구성을 Conda 중심 절차로 변경 | [상세](devlog/2026-07-10/002-readme-conda-environment.md) |
+| 2026-07-10 | 003 | 신규 서버의 admin 비밀번호 변경 시 idpcore DB 자동 초기화 | [상세](devlog/2026-07-10/003-admin-password-db-bootstrap.md) |

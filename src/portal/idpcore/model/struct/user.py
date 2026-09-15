@@ -54,11 +54,13 @@ class User:
         rows = self.db.rows(orderby=orderby, order=order)
         return [r for r in rows if not self._is_expired(r)]
 
-    def get(self, id=None, username=None):
+    def get(self, id=None, username=None, email=None):
         if id:
             return self.db.get(id=id)
         if username:
             return self.db.get(username=username)
+        if email:
+            return self.db.get(email=email)
         return None
 
     def create(self, data):

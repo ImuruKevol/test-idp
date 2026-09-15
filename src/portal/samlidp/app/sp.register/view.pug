@@ -1,261 +1,195 @@
-div(class="space-y-4")
-    // === LIST MODE ===
-    div(*ngIf="mode === 'list'")
-        div(class="flex items-center justify-between")
-            h2(class="text-lg font-semibold text-zinc-950") 등록된 SP 목록
-            button(class="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-orange-600",
-                (click)="showRegister()")
-                svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="2", stroke="currentColor")
-                    path(stroke-linecap="round", stroke-linejoin="round", d="M12 4.5v15m7.5-7.5h-15")
-                | SP 등록
-
-        // Security Limits Info
-        div(class="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4")
-            div(class="flex items-start gap-3")
-                svg(class="size-5 shrink-0 text-blue-500 mt-0.5", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
-                    path(stroke-linecap="round", stroke-linejoin="round", d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z")
-                div
-                    p(class="text-[13px] font-semibold text-blue-800") 보안 제한 안내
-                    div(class="mt-1 flex flex-wrap gap-x-4 gap-y-1")
-                        span(class="text-xs text-blue-700") 📋 SP 최대 50개
-                        span(class="text-xs text-blue-700") 📄 XML 최대 256KB
-                        span(class="text-xs text-blue-700") ⏱ 등록 5회 / 5분
-                        span(*ngIf="isAdmin()", class="text-xs text-blue-700") ♾ admin 연장 / 영구 전환 가능
-                    p(class="mt-1 text-xs text-blue-600") 🔒 삭제는 admin 로그인 또는 등록한 IP에서만 가능합니다.
-
-        // Loading
-        div(*ngIf="loading", class="flex items-center justify-center py-12")
-            span(class="text-[13px] text-zinc-400") 로딩 중...
-
-        // Empty
-        div(*ngIf="!loading && spList.length === 0", class="mt-6 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center")
-            p(class="text-[13px] text-zinc-500") 등록된 SP가 없습니다.
-            p(class="mt-2 text-xs text-zinc-400") "SP 등록" 버튼으로 SP 메타데이터 XML을 등록하세요.
-
-        // SP List
-        div(*ngIf="!loading && spList.length > 0", class="mt-4 space-y-3")
-            div(*ngFor="let sp of spList",
-                class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-orange-200 hover:shadow-sm")
-                div(class="flex items-start justify-between gap-4")
-                    div(class="min-w-0 flex-1 cursor-pointer", (click)="showDetail(sp)")
-                        p(class="truncate text-[13px] font-semibold text-zinc-900") {{sp.entity_id}}
-                        div(class="mt-2 flex flex-wrap gap-2")
-                            span(class="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700") ACS: {{sp.acs_url?.length || 0}}
-                            span(*ngIf="sp.flags?.has_slo", class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700") SLO
-                            span(*ngIf="!sp.flags?.has_slo", class="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500") SLO 없음
-                            span(*ngIf="sp.flags?.has_signing_cert", class="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700") Cert
-                            span(*ngIf="!sp.flags?.has_signing_cert", class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700") Cert 없음
-                            span(*ngIf="sp.expires && !isExpired(sp.expires) && !isExpiringSoon(sp.expires)",
-                                class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700")
-                                | ⏱ {{getTimeRemaining(sp.expires)}}
-                            span(*ngIf="sp.expires && (isExpired(sp.expires) || isExpiringSoon(sp.expires))",
-                                class="rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600")
-                                | ⏱ {{getTimeRemaining(sp.expires)}}
-                            span(*ngIf="!sp.expires",
-                                class="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500") 영구
-                    div(class="shrink-0 flex flex-col items-end gap-2")
-                        div(*ngIf="isAdmin() && sp.expires", class="flex items-center gap-1")
-                            button(class="rounded-lg px-2 py-1 text-xs font-medium text-sky-600 transition hover:bg-sky-50",
-                                (click)="extendSp(sp); $event.stopPropagation()") +24h
-                            button(class="rounded-lg px-2 py-1 text-xs font-medium text-violet-600 transition hover:bg-violet-50",
-                                (click)="setUnlimited(sp); $event.stopPropagation()") 무기한
-                        button(*ngIf="sp.can_delete",
-                            class="rounded-lg p-2 text-zinc-400 transition hover:bg-red-50 hover:text-red-500",
-                            (click)="deleteSp(sp); $event.stopPropagation()")
-                            svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
-                                path(stroke-linecap="round", stroke-linejoin="round", d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0")
-                        span(*ngIf="!sp.can_delete",
-                            class="rounded-lg p-2 text-zinc-300",
-                            title="삭제 권한 없음 (admin 로그인 또는 등록 IP에서만 삭제 가능)")
-                            svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
-                                path(stroke-linecap="round", stroke-linejoin="round", d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z")
-
-    // === REGISTER MODE ===
-    div(*ngIf="mode === 'register'")
-        div(class="flex items-center gap-3 mb-4")
-            button(class="rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600",
-                (click)="showList()")
-                svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="2", stroke="currentColor")
-                    path(stroke-linecap="round", stroke-linejoin="round", d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18")
-            h2(class="text-lg font-semibold text-zinc-950") SP 메타데이터 등록
-
-        div(class="space-y-4")
-            // File Upload
-            div(class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center")
-                label(class="cursor-pointer")
-                    input(type="file", accept=".xml", class="hidden", (change)="onFileUpload($event)")
-                    div(class="flex flex-col items-center gap-2")
-                        svg(class="size-8 text-zinc-400", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.5", stroke="currentColor")
-                            path(stroke-linecap="round", stroke-linejoin="round", d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5")
-                        span(class="text-[13px] font-medium text-zinc-600") XML 파일 업로드
-                        span(class="text-xs text-zinc-400") 또는 아래에 직접 붙여넣기
-
-            // XML Textarea
+div(class="space-y-8")
+    div(*ngIf="mode === 'list'", class="space-y-6")
+        header(class="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start sm:justify-between")
             div
-                label(class="text-[13px] font-medium text-zinc-700") Raw XML
-                textarea([(ngModel)]="xmlInput",
-                    (ngModelChange)="service.render()",
-                    rows="12",
-                    placeholder="SP 메타데이터 XML을 붙여넣어 주세요...",
-                    class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-800 placeholder:text-zinc-400 focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-400")
+                p(class="text-xs font-bold uppercase tracking-[0.16em] text-orange-600") Service providers
+                h2(class="mt-1.5 text-xl font-bold tracking-tight text-slate-950") SP 관리
+                p(class="mt-1.5 text-sm leading-6 text-slate-600") Metadata를 등록하고 표준 상태, ACS, SLO, 인증서를 한눈에 확인합니다.
+            button(type="button", class="h-10 rounded-xl bg-orange-500 px-4 text-sm font-bold text-white transition hover:bg-orange-600", (click)="showRegister()") SP 등록
 
-            // Submit
-            div(class="flex justify-end")
-                button(class="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-orange-600 disabled:opacity-50",
-                    [disabled]="registering || !xmlInput.trim()",
-                    (click)="registerSp()")
-                    span(*ngIf="registering") 등록 중...
-                    span(*ngIf="!registering") 등록하기
+        div(class="grid gap-3 sm:grid-cols-3")
+            div(class="rounded-xl border border-orange-200 bg-orange-50 p-4")
+                p(class="text-xs font-semibold text-orange-700") 등록된 SP
+                p(class="mt-1 text-2xl font-bold text-slate-950") {{spList.length}}
+            div(class="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2")
+                p(class="text-sm font-semibold text-slate-900") 등록 기준
+                p(class="mt-1 text-sm leading-6 text-slate-600") XML 최대 256KB, 최대 50개입니다. 서명 또는 암호화 인증서가 없으면 상세 화면에 호환 시험으로 표시됩니다.
 
-    // === RESULT MODE ===
-    div(*ngIf="mode === 'result' && registerResult")
-        div(class="flex items-center gap-3 mb-4")
-            button(class="rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600",
-                (click)="showList()")
+        div(*ngIf="loading", class="flex min-h-[16rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50")
+            p(class="text-sm text-slate-500") SP 목록을 불러오는 중...
+
+        div(*ngIf="!loading && spList.length === 0", class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center")
+            h3(class="text-base font-semibold text-slate-800") 등록된 SP가 없습니다.
+            p(class="mt-1 text-sm text-slate-500") SP Metadata XML을 등록하면 상태와 endpoint를 확인할 수 있습니다.
+            button(type="button", class="mt-4 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white", (click)="showRegister()") 첫 SP 등록
+
+        div(*ngIf="!loading && spList.length > 0", class="space-y-3")
+            article(*ngFor="let sp of spList", class="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-orange-200 hover:shadow-sm")
+                div(class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between")
+                    button(type="button", class="min-w-0 flex-1 text-left", (click)="showDetail(sp)")
+                        p(class="break-all text-sm font-bold leading-6 text-slate-950 group-hover:text-orange-700") {{sp.entity_id}}
+                        div(class="mt-2 flex flex-wrap gap-2")
+                            span(class="rounded-full px-2.5 py-1 text-xs font-semibold", [class]="sp.flags?.standards_status === 'standard' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'") {{sp.flags?.standards_status === 'standard' ? '표준' : '호환 시험'}}
+                            span(class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600") ACS {{sp.acs_url?.length || 0}}
+                            span(class="rounded-full px-2.5 py-1 text-xs font-medium", [class]="sp.flags?.has_slo ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-500'") {{sp.flags?.has_slo ? 'SLO 지원' : 'SLO 없음'}}
+                            span(class="rounded-full px-2.5 py-1 text-xs font-medium", [class]="sp.flags?.has_signing_cert ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-700'") {{sp.flags?.has_signing_cert ? 'Signing 인증서' : 'Signing 인증서 없음'}}
+                    div(class="flex shrink-0 flex-wrap items-center gap-2")
+                        span(class="text-sm font-medium", [class]="sp.expires && (isExpired(sp.expires) || isExpiringSoon(sp.expires)) ? 'text-rose-600' : 'text-slate-500'") {{getTimeRemaining(sp.expires)}}
+                        button(*ngIf="isAdmin() && sp.expires", type="button", class="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50", (click)="extendSp(sp)") +24시간
+                        button(type="button", class="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white", (click)="showDetail(sp)") 상세
+
+    div(*ngIf="mode === 'register'", class="space-y-6")
+        header(class="flex items-center gap-3 border-b border-slate-200 pb-4")
+            button(type="button", class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700", aria-label="SP 목록으로", (click)="showList()")
                 svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="2", stroke="currentColor")
                     path(stroke-linecap="round", stroke-linejoin="round", d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18")
-            h2(class="text-lg font-semibold text-zinc-950") SP 등록 완료
+            div
+                p(class="text-xs font-semibold text-slate-500") SP 관리 / 등록
+                h2(class="mt-0.5 text-lg font-bold text-slate-950") Metadata XML 등록
 
-        // Warnings
-        div(*ngIf="registerResult.warnings?.length > 0", class="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4")
-            p(class="text-[13px] font-semibold text-amber-800") 경고
-            ul(class="mt-2 space-y-1")
-                li(*ngFor="let w of registerResult.warnings", class="text-xs text-amber-700") • {{w}}
+        div(class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]")
+            div(class="space-y-4")
+                label(class="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center transition hover:border-orange-300 hover:bg-orange-50")
+                    input(type="file", accept=".xml,application/xml,text/xml", class="hidden", (change)="onFileUpload($event)")
+                    span(class="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-white text-orange-600 shadow-sm")
+                        svg(class="size-5", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="1.7", stroke="currentColor")
+                            path(stroke-linecap="round", stroke-linejoin="round", d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5")
+                    strong(class="mt-3 block text-sm font-semibold text-slate-800") XML 파일 선택
+                    span(class="mt-1 block text-sm text-slate-500") 또는 아래 입력란에 직접 붙여넣으세요.
+                label(class="block text-sm font-semibold text-slate-800") Metadata XML
+                    textarea([(ngModel)]="xmlInput", (ngModelChange)="service.render()", rows="15", placeholder="<md:EntityDescriptor ...>", class="mt-1.5 w-full rounded-xl border border-slate-300 bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-100 placeholder:text-slate-500 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100")
+                div(class="flex justify-end gap-2")
+                    button(type="button", class="h-10 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700", [disabled]="registering", (click)="showList()") 취소
+                    button(type="button", class="h-10 rounded-xl bg-orange-500 px-5 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50", [disabled]="registering || !xmlInput.trim()", (click)="registerSp()") {{registering ? '등록 중...' : 'Metadata 확인 후 등록'}}
+            aside(class="h-fit rounded-xl border border-slate-200 bg-slate-50 p-4")
+                h3(class="text-sm font-semibold text-slate-900") 등록 전에 확인하세요
+                ol(class="mt-3 space-y-3 text-sm leading-6 text-slate-600")
+                    li(class="flex gap-2")
+                        span(class="font-bold text-orange-600") 1.
+                        span Entity ID와 ACS URL이 현재 SP 값인지 확인합니다.
+                    li(class="flex gap-2")
+                        span(class="font-bold text-orange-600") 2.
+                        span 서명 검증이 필요하면 Signing 인증서를 포함합니다.
+                    li(class="flex gap-2")
+                        span(class="font-bold text-orange-600") 3.
+                        span EncryptedAssertion 시험에는 Encryption 인증서가 필요합니다.
 
-        // Expiry Notice
-        div(*ngIf="registerResult.expires", class="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-4")
-            div(class="flex items-center gap-2")
-                span(class="text-[13px]") ⏱
-                p(class="text-[13px] font-semibold text-violet-800") 기본 유효 시간은 24시간입니다.
-            p(class="mt-1 text-xs text-violet-600") 만료: {{registerResult.expires | date:'yyyy-MM-dd HH:mm'}} ({{getTimeRemaining(registerResult.expires)}})
-            p(class="mt-2 text-xs text-violet-500") 관리자 권한으로 만료 전후 모두 연장하거나 영구 보관으로 전환할 수 있습니다.
+    div(*ngIf="mode === 'result' && registerResult", class="space-y-6")
+        header(class="flex items-center gap-3 border-b border-slate-200 pb-4")
+            span(class="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700") ✓
+            div
+                p(class="text-xs font-semibold text-slate-500") SP 관리 / 등록 완료
+                h2(class="mt-0.5 text-lg font-bold text-slate-950") Metadata를 등록했습니다.
+        div(*ngIf="registerResult.warnings?.length", class="rounded-xl border border-amber-200 bg-amber-50 p-4")
+            p(class="text-sm font-semibold text-amber-900") 확인이 필요한 항목
+            ul(class="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800")
+                li(*ngFor="let warning of registerResult.warnings") {{warning}}
+        div(class="grid gap-4 lg:grid-cols-2")
+            div(class="rounded-xl border border-slate-200 p-4 lg:col-span-2")
+                p(class="text-xs font-semibold uppercase tracking-wide text-slate-400") Entity ID
+                p(class="mt-2 break-all text-sm font-semibold text-slate-900") {{registerResult.entity_id}}
+            div(class="rounded-xl border border-slate-200 p-4")
+                p(class="text-sm font-semibold text-slate-900") ACS endpoint
+                div(*ngIf="registerResult.acs_url?.length", class="mt-3 space-y-2")
+                    div(*ngFor="let acs of registerResult.acs_url", class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2")
+                        span(class="rounded bg-orange-50 px-2 py-1 text-center text-xs font-semibold text-orange-700") {{getBindingShort(acs.binding)}}
+                        span(class="break-all text-sm text-slate-600") {{acs.location}}
+                p(*ngIf="!registerResult.acs_url?.length", class="mt-2 text-sm text-slate-500") 없음
+            div(class="rounded-xl border border-slate-200 p-4")
+                p(class="text-sm font-semibold text-slate-900") SLO endpoint
+                div(*ngIf="registerResult.slo_url?.length", class="mt-3 space-y-2")
+                    div(*ngFor="let slo of registerResult.slo_url", class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2")
+                        span(class="rounded bg-sky-50 px-2 py-1 text-center text-xs font-semibold text-sky-700") {{getBindingShort(slo.binding)}}
+                        div(class="space-y-1")
+                            p(class="break-all text-sm text-slate-600") {{slo.location}}
+                            p(*ngIf="slo.response_location", class="break-all text-xs text-slate-500") 응답: {{slo.response_location}}
+                p(*ngIf="!registerResult.slo_url?.length", class="mt-2 text-sm text-slate-500") 없음
+        div(class="flex justify-end")
+            button(type="button", class="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white", (click)="showList()") SP 목록으로
 
-        // Result Summary
-        div(class="space-y-3")
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") Entity ID
-                p(class="mt-1 text-[13px] font-medium text-zinc-900 break-all") {{registerResult.entity_id}}
-
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") ACS Endpoints
-                div(*ngIf="registerResult.acs_url?.length > 0", class="mt-2 space-y-2")
-                    div(*ngFor="let acs of registerResult.acs_url", class="flex items-center gap-2")
-                        span(class="rounded bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700") {{getBindingShort(acs.binding)}}
-                        span(class="text-xs text-zinc-700 break-all") {{acs.location}}
-                p(*ngIf="!registerResult.acs_url?.length", class="mt-1 text-xs text-zinc-400") 없음
-
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") SLO Endpoints
-                div(*ngIf="registerResult.slo_url?.length > 0", class="mt-2 space-y-2")
-                    div(*ngFor="let slo of registerResult.slo_url", class="flex items-center gap-2")
-                        span(class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700") {{getBindingShort(slo.binding)}}
-                        span(class="text-xs text-zinc-700 break-all") {{slo.location}}
-                p(*ngIf="!registerResult.slo_url?.length", class="mt-1 text-xs text-zinc-400") 없음
-
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") NameID Formats
-                div(*ngIf="registerResult.nameid_formats?.length > 0", class="mt-2 flex flex-wrap gap-2")
-                    span(*ngFor="let fmt of registerResult.nameid_formats", class="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600") {{fmt}}
-                p(*ngIf="!registerResult.nameid_formats?.length", class="mt-1 text-xs text-zinc-400") 없음
-
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") Flags
-                div(class="mt-2 flex flex-wrap gap-2")
-                    span(class="rounded-full px-2.5 py-1 text-xs font-medium",
-                        [class]="registerResult.flags?.has_signing_cert ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'") Signing Cert: {{registerResult.flags?.has_signing_cert ? 'Yes' : 'No'}}
-                    span(class="rounded-full px-2.5 py-1 text-xs font-medium",
-                        [class]="registerResult.flags?.has_encryption_cert ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'") Encryption Cert: {{registerResult.flags?.has_encryption_cert ? 'Yes' : 'No'}}
-                    span(class="rounded-full px-2.5 py-1 text-xs font-medium",
-                        [class]="registerResult.flags?.has_slo ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'") SLO: {{registerResult.flags?.has_slo ? 'Yes' : 'No'}}
-
-        div(class="mt-4 flex justify-end")
-            button(class="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-zinc-800",
-                (click)="showList()") 목록으로 돌아가기
-
-    // === DETAIL MODE ===
-    div(*ngIf="mode === 'detail' && selectedSp")
-        div(class="flex items-center gap-3 mb-4")
-            button(class="rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600",
-                (click)="showList()")
+    div(*ngIf="mode === 'detail' && selectedSp", class="space-y-6")
+        header(class="flex items-center gap-3 border-b border-slate-200 pb-4")
+            button(type="button", class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700", aria-label="SP 목록으로", (click)="showList()")
                 svg(class="size-4", xmlns="http://www.w3.org/2000/svg", fill="none", viewBox="0 0 24 24", stroke-width="2", stroke="currentColor")
                     path(stroke-linecap="round", stroke-linejoin="round", d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18")
-            h2(class="text-lg font-semibold text-zinc-950") SP 상세 정보
+            div
+                p(class="text-xs font-semibold text-slate-500") SP 관리 / 상세
+                h2(class="mt-0.5 text-lg font-bold text-slate-950") 등록 정보
 
-        div(class="space-y-3")
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") Entity ID
-                p(class="mt-1 text-[13px] font-medium text-zinc-900 break-all") {{selectedSp.entity_id}}
+        div(class="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)]")
+            aside(class="space-y-5 rounded-2xl border border-slate-200 bg-slate-50 p-6 xl:sticky xl:top-[4.75rem] xl:self-start")
+                div
+                    p(class="text-xs font-bold uppercase tracking-wide text-slate-400") 선택한 SP
+                    h3(class="mt-2 break-all text-sm font-bold leading-6 text-slate-950") {{selectedSp.entity_id}}
+                div(class="flex flex-wrap gap-2")
+                    span(class="rounded-full px-2.5 py-1 text-xs font-semibold", [class]="selectedSp.flags?.standards_status === 'standard' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'") {{selectedSp.flags?.standards_status === 'standard' ? '표준' : '호환 시험'}}
+                    span(class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200") ACS {{selectedSp.acs_url?.length || 0}}
+                    span(class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200") {{selectedSp.flags?.has_slo ? 'SLO 지원' : 'SLO 없음'}}
+                div(class="rounded-xl border border-slate-200 bg-white p-3")
+                    p(class="text-xs font-semibold text-slate-500") 유효 시간
+                    p(class="mt-1 text-sm font-semibold text-slate-900") {{getTimeRemaining(selectedSp.expires)}}
+                    p(*ngIf="selectedSp.expires", class="mt-1 text-xs text-slate-500") {{selectedSp.expires | date:'yyyy-MM-dd HH:mm'}}
+                div(*ngIf="isAdmin() && selectedSp.expires", class="grid grid-cols-2 gap-2")
+                    button(type="button", class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-semibold text-slate-700", (click)="extendSp(selectedSp)") +24시간
+                    button(type="button", class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-semibold text-slate-700", (click)="setUnlimited(selectedSp)") 무기한
+                button(*ngIf="selectedSp.can_delete", type="button", class="w-full rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50", (click)="deleteSp(selectedSp)") SP 삭제
+                p(*ngIf="!selectedSp.can_delete", class="text-center text-xs leading-5 text-slate-500") admin 또는 등록한 IP에서 삭제할 수 있습니다.
 
-            div(*ngIf="selectedSp.created_by_ip", class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") 등록 IP
-                div(class="mt-1 flex items-center gap-2")
-                    p(class="text-[13px] font-mono text-zinc-700") {{selectedSp.created_by_ip}}
-                    span(*ngIf="selectedSp.can_delete",
-                        class="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-700") 삭제 가능
-                    span(*ngIf="!selectedSp.can_delete",
-                        class="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500") 삭제 불가
+            div(class="space-y-5 rounded-2xl border border-slate-200 bg-white p-6")
+                nav(class="-mx-1 flex gap-1 overflow-x-auto border-b border-slate-200 px-1", aria-label="SP 상세 메뉴")
+                    button(type="button", class="shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition", [class]="detailTabClass('overview')", (click)="setDetailTab('overview')") 요약
+                    button(type="button", class="shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition", [class]="detailTabClass('endpoints')", (click)="setDetailTab('endpoints')") Endpoint
+                    button(type="button", class="shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition", [class]="detailTabClass('attributes')", (click)="setDetailTab('attributes')") Attribute·보안
 
-            div(*ngIf="selectedSp.expires", class="rounded-xl border p-4",
-                [class]="isExpired(selectedSp.expires) || isExpiringSoon(selectedSp.expires) ? 'border-red-200 bg-red-50' : 'border-violet-200 bg-violet-50'")
-                p(class="text-xs font-semibold uppercase tracking-wider",
-                    [class]="isExpired(selectedSp.expires) || isExpiringSoon(selectedSp.expires) ? 'text-red-400' : 'text-violet-400'") 만료
-                p(class="mt-1 text-[13px] font-medium",
-                    [class]="isExpired(selectedSp.expires) || isExpiringSoon(selectedSp.expires) ? 'text-red-700' : 'text-violet-700'") {{getTimeRemaining(selectedSp.expires)}}
-                p(class="mt-1 text-xs",
-                    [class]="isExpired(selectedSp.expires) || isExpiringSoon(selectedSp.expires) ? 'text-red-500' : 'text-violet-500'") {{selectedSp.expires | date:'yyyy-MM-dd HH:mm'}}
-                div(*ngIf="isAdmin()", class="mt-3 flex flex-wrap gap-2")
-                    button(class="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-700",
-                        (click)="extendSp(selectedSp)") +24시간 연장
-                    button(class="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-700",
-                        (click)="setUnlimited(selectedSp)") 무기한 전환
+                div(*ngIf="detailTab === 'overview'", class="space-y-4")
+                    div(class="grid gap-4 md:grid-cols-2")
+                        div(class="rounded-xl border border-slate-200 p-4")
+                            p(class="text-xs font-semibold uppercase tracking-wide text-slate-400") AuthnRequestsSigned
+                            p(class="mt-2 text-sm font-semibold text-slate-900") {{selectedSp.flags?.authn_requests_signed ? 'Yes' : 'No'}}
+                        div(class="rounded-xl border border-slate-200 p-4")
+                            p(class="text-xs font-semibold uppercase tracking-wide text-slate-400") WantAssertionsSigned
+                            p(class="mt-2 text-sm font-semibold text-slate-900") {{selectedSp.flags?.want_assertions_signed ? 'Yes' : 'No'}}
+                    div(class="rounded-xl border p-4", [class]="selectedSp.flags?.standards_status === 'standard' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'")
+                        p(class="text-sm font-semibold", [class]="selectedSp.flags?.standards_status === 'standard' ? 'text-emerald-800' : 'text-amber-900'") {{selectedSp.flags?.standards_status === 'standard' ? '표준 설정입니다.' : '호환 시험 항목이 있습니다.'}}
+                        ul(*ngIf="selectedSp.flags?.standards_warnings?.length", class="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800")
+                            li(*ngFor="let warning of selectedSp.flags.standards_warnings") {{warning}}
+                    div(*ngIf="selectedSp.created_by_ip", class="rounded-xl border border-slate-200 p-4")
+                        p(class="text-xs font-semibold uppercase tracking-wide text-slate-400") 등록 IP
+                        p(class="mt-2 font-mono text-sm text-slate-700") {{selectedSp.created_by_ip}}
 
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") ACS Endpoints
-                div(*ngIf="selectedSp.acs_url?.length > 0", class="mt-2 space-y-2")
-                    div(*ngFor="let acs of selectedSp.acs_url", class="flex items-center gap-2")
-                        span(class="rounded bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700") {{getBindingShort(acs.binding)}}
-                        span(class="text-xs text-zinc-700 break-all") {{acs.location}}
+                div(*ngIf="detailTab === 'endpoints'", class="grid gap-4 lg:grid-cols-2")
+                    div(class="rounded-xl border border-slate-200 p-4")
+                        p(class="text-sm font-semibold text-slate-900") ACS endpoint
+                        div(*ngIf="selectedSp.acs_url?.length", class="mt-3 space-y-3")
+                            div(*ngFor="let acs of selectedSp.acs_url")
+                                span(class="rounded bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700") {{getBindingShort(acs.binding)}}
+                                p(class="mt-1.5 break-all text-sm leading-6 text-slate-600") {{acs.location}}
+                    div(class="rounded-xl border border-slate-200 p-4")
+                        p(class="text-sm font-semibold text-slate-900") SLO endpoint
+                        div(*ngIf="selectedSp.slo_url?.length", class="mt-3 space-y-3")
+                            div(*ngFor="let slo of selectedSp.slo_url")
+                                span(class="rounded bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700") {{getBindingShort(slo.binding)}}
+                                p(class="mt-1.5 break-all text-sm leading-6 text-slate-600") {{slo.location}}
+                                p(*ngIf="slo.response_location", class="mt-1 break-all text-xs leading-5 text-slate-500") 응답: {{slo.response_location}}
+                        p(*ngIf="!selectedSp.slo_url?.length", class="mt-2 text-sm text-slate-500") 등록되지 않음
 
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") SLO Endpoints
-                div(*ngIf="selectedSp.slo_url?.length > 0", class="mt-2 space-y-2")
-                    div(*ngFor="let slo of selectedSp.slo_url", class="flex items-center gap-2")
-                        span(class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700") {{getBindingShort(slo.binding)}}
-                        span(class="text-xs text-zinc-700 break-all") {{slo.location}}
-                p(*ngIf="!selectedSp.slo_url?.length", class="mt-1 text-xs text-zinc-400") SLO 미지원
-
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") NameID Formats
-                div(*ngIf="selectedSp.nameid_formats?.length > 0", class="mt-2 flex flex-wrap gap-2")
-                    span(*ngFor="let fmt of selectedSp.nameid_formats", class="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600") {{fmt}}
-                p(*ngIf="!selectedSp.nameid_formats?.length", class="mt-1 text-xs text-zinc-400") 없음
-
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") Requested Attributes
-                div(*ngIf="selectedSp.requested_attributes?.length > 0", class="mt-2 space-y-1")
-                    div(*ngFor="let attr of selectedSp.requested_attributes", class="flex items-center gap-2")
-                        span(class="text-xs text-zinc-700") {{attr.friendly_name || attr.name}}
-                        span(*ngIf="attr.is_required === 'true'", class="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600") Required
-                p(*ngIf="!selectedSp.requested_attributes?.length", class="mt-1 text-xs text-zinc-400") 없음
-
-            div(class="rounded-xl border border-zinc-200 bg-white p-4")
-                p(class="text-xs font-semibold uppercase tracking-wider text-zinc-400") Flags
-                div(class="mt-2 flex flex-wrap gap-2")
-                    span(class="rounded-full px-2.5 py-1 text-xs font-medium",
-                        [class]="selectedSp.flags?.has_signing_cert ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'") Signing Cert: {{selectedSp.flags?.has_signing_cert ? 'Yes' : 'No'}}
-                    span(class="rounded-full px-2.5 py-1 text-xs font-medium",
-                        [class]="selectedSp.flags?.has_encryption_cert ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'") Encryption Cert: {{selectedSp.flags?.has_encryption_cert ? 'Yes' : 'No'}}
-                    span(class="rounded-full px-2.5 py-1 text-xs font-medium",
-                        [class]="selectedSp.flags?.has_slo ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-600'") SLO: {{selectedSp.flags?.has_slo ? 'Yes' : 'No'}}
-                    span(class="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600") AuthnRequestsSigned: {{selectedSp.flags?.authn_requests_signed}}
-                    span(class="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600") WantAssertionsSigned: {{selectedSp.flags?.want_assertions_signed}}
-
-        div(class="mt-4 flex justify-between")
-            button(class="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-zinc-800",
-                (click)="showList()") 목록으로
-            div(class="flex items-center gap-2")
-                span(*ngIf="!selectedSp.can_delete",
-                    class="text-xs text-zinc-400") 🔒 삭제 권한 없음
-                button(*ngIf="selectedSp.can_delete",
-                    class="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-red-600",
-                    (click)="deleteSp(selectedSp)") 삭제
+                div(*ngIf="detailTab === 'attributes'", class="space-y-4")
+                    div(class="rounded-xl border border-slate-200 p-4")
+                        p(class="text-sm font-semibold text-slate-900") NameID Format
+                        div(*ngIf="selectedSp.nameid_formats?.length", class="mt-3 flex flex-wrap gap-2")
+                            span(*ngFor="let format of selectedSp.nameid_formats", class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600") {{format}}
+                        p(*ngIf="!selectedSp.nameid_formats?.length", class="mt-2 text-sm text-slate-500") 등록되지 않음
+                    div(class="rounded-xl border border-slate-200 p-4")
+                        p(class="text-sm font-semibold text-slate-900") Requested Attribute
+                        div(*ngIf="selectedSp.requested_attributes?.length", class="mt-3 divide-y divide-slate-100")
+                            div(*ngFor="let attribute of selectedSp.requested_attributes", class="flex items-center justify-between gap-3 py-2 text-sm")
+                                span(class="break-all text-slate-700") {{attribute.friendly_name || attribute.name}}
+                                span(*ngIf="attribute.is_required === 'true'", class="shrink-0 rounded bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700") Required
+                        p(*ngIf="!selectedSp.requested_attributes?.length", class="mt-2 text-sm text-slate-500") 등록되지 않음
+                    div(class="grid gap-3 sm:grid-cols-2")
+                        div(class="rounded-xl border border-slate-200 p-4")
+                            p(class="text-xs font-semibold text-slate-500") Signing 인증서
+                            p(class="mt-1 text-sm font-semibold text-slate-900") {{selectedSp.flags?.has_signing_cert ? '등록됨' : '없음'}}
+                        div(class="rounded-xl border border-slate-200 p-4")
+                            p(class="text-xs font-semibold text-slate-500") Encryption 인증서
+                            p(class="mt-1 text-sm font-semibold text-slate-900") {{selectedSp.flags?.has_encryption_cert ? '등록됨' : '없음'}}

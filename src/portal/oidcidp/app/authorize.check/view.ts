@@ -18,6 +18,7 @@ export class Component implements OnInit {
         error_modes: [],
     };
     public result: any = null;
+    public showSecrets: boolean = false;
     public form: any = this.defaultForm();
 
     constructor(public service: Service) { }
@@ -222,6 +223,20 @@ export class Component implements OnInit {
         if (value === null || value === undefined) return '';
         if (typeof value === 'string') return value;
         return JSON.stringify(value, null, 2);
+    }
+
+    public tokenPreview(value: any) {
+        if (this.showSecrets || !value || typeof value !== 'object') return value;
+        const masked = { ...value };
+        ['access_token', 'id_token', 'refresh_token'].forEach((key) => {
+            if (masked[key]) masked[key] = '••••••••••••';
+        });
+        return masked;
+    }
+
+    public async toggleSecrets() {
+        this.showSecrets = !this.showSecrets;
+        await this.service.render();
     }
 
     public async copyText(text: string) {

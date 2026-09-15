@@ -47,3 +47,18 @@
 | 2026-07-10 | 001 | README에 WIZ 기반 설치·실행 가이드와 재현 가능한 DB 설정 추가 | [상세](devlog/2026-07-10/001-readme-installation-guide.md) |
 | 2026-07-10 | 002 | README Python 환경 구성을 Conda 중심 절차로 변경 | [상세](devlog/2026-07-10/002-readme-conda-environment.md) |
 | 2026-07-10 | 003 | 신규 서버의 admin 비밀번호 변경 시 idpcore DB 자동 초기화 | [상세](devlog/2026-07-10/003-admin-password-db-bootstrap.md) |
+| 2026-07-14 | 001 | ReviewOps 임시 OIDC·SAML 프로필 별칭과 인증 바인딩 추가 | [상세](devlog/2026-07-14/001-reviewops-stateless-protocol-profile.md) |
+| 2026-07-14 | 002 | ReviewOps SAML 브라우저 SLO·Passive·응답 서명 조합 보강 | [상세](devlog/2026-07-14/002-reviewops-saml-browser-slo-and-response-defaults.md) |
+| 2026-07-14 | 003 | ReviewOps federation metadata와 Assertion 속성 누락 검증 보강 | [상세](devlog/2026-07-14/003-reviewops-federation-metadata-and-attribute-omit.md) |
+| 2026-07-14 | 004 | ReviewOps 프로필별 SAML Attribute OID 값 주입 및 실제 응답 검증 보강 | [상세](devlog/2026-07-14/004-reviewops-saml-profile-attribute-values.md) |
+| 2026-07-15 | 001 | OIDC 토큰 시간대 독립 epoch 발급 수정 | [상세](devlog/2026-07-15/001-oidc-token-epoch-timezone-fix.md) |
+| 2026-07-16 | 001 | ReviewOps SAML Redirect 원문 서명과 SLO 바인딩 보강 | [상세](devlog/2026-07-16/001-reviewops-saml-redirect-signature-hardening.md) |
+| 2026-08-18 | 001 | admin 계정 패스워드 갱신 | [상세](devlog/2026-08-18/001-admin-password-update.md) |
+| 2026-09-15 | 001 | OIDC·SAML 표준 기능과 호환성 표시 및 운영 화면 보강 | [상세](devlog/2026-09-15/001-modernize-oidc-saml.md) |
+| 2026-09-15 | 002 | OIDC·SAML 작업 메뉴, 실행 설정, 상세 화면 UX 개편 | [상세](devlog/2026-09-15/002-redesign-protocol-console-ux.md) |
+| 2026-09-15 | 003 | 실행 설정 선택, SAML 세션·로그인 성능, 화면 여백 보강 | [상세](devlog/2026-09-15/003-execution-settings-session-performance-spacing.md) |
+| 2026-09-15 | 004 | SAML IdP 정보 로딩 오류 수정 및 실행 중 확인 | [상세](devlog/2026-09-15/004-fix-saml-idp-info-loading.md) |
+| 2026-09-15 | 005 | OIDC·SAML 실행 설정 삭제 기능 추가 | [상세](devlog/2026-09-15/005-delete-execution-settings.md) |
+| 2026-09-15 | 006 | OIDC end_session과 SAML SLO 표준 흐름 보강 | [상세](devlog/2026-09-15/006-end-session-and-slo-support.md) |
+| 2026-09-15 | 007 | 검증용 IdP 세션 만료 및 메모리 상한 보강 | [상세](devlog/2026-09-15/007-session-and-memory-safety.md) |
+| 2026-09-15 | 008 | ReviewOps 기능 개선 변경 커밋 정리 | [상세](devlog/2026-09-15/008-commit-reviewops-improvements.md) |

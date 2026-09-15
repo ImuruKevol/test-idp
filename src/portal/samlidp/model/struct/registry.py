@@ -1,6 +1,7 @@
 import json
 import datetime
 from lxml import etree
+from signxml import XMLVerifier
 
 NS = {
     "md": "urn:oasis:names:tc:SAML:2.0:metadata",
@@ -228,9 +229,12 @@ class Registry:
 
         acs_endpoints = []
         for acs in sp_sso.findall("md:AssertionConsumerService", NS):
+            location = str(acs.get("Location", ""))
+            if not location.startswith(("https://", "http://")):
+                raise Exception("AssertionConsumerService Location은 http 또는 https 절대 URL이어야 합니다.")
             acs_endpoints.append({
                 "binding": acs.get("Binding", ""),
-                "location": acs.get("Location", ""),
+                "location": location,
                 "index": acs.get("index", "0"),
                 "is_default": acs.get("isDefault", "false"),
             })
@@ -238,10 +242,23 @@ class Registry:
             raise Exception("AssertionConsumerService가 하나도 없습니다.")
 
         slo_endpoints = []
+        slo_warnings = []
         for slo in sp_sso.findall("md:SingleLogoutService", NS):
+            binding = str(slo.get("Binding", ""))
+            location = str(slo.get("Location", ""))
+            response_location = str(slo.get("ResponseLocation", ""))
+            if binding not in [
+                "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST",
+                "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect",
+            ]:
+                slo_warnings.append("지원 범위 밖 SLO Binding은 호환 정보로만 보관됩니다.")
+            for label, value in [("Location", location), ("ResponseLocation", response_location)]:
+                if value and not value.startswith(("https://", "http://")):
+                    slo_warnings.append(f"SingleLogoutService {label}이 http 또는 https 절대 URL이 아닙니다.")
             slo_endpoints.append({
-                "binding": slo.get("Binding", ""),
-                "location": slo.get("Location", ""),
+                "binding": binding,
+                "location": location,
+                "response_location": response_location,
             })
 
         nameid_formats = []
@@ -249,9 +266,9 @@ class Registry:
             if nf.text:
                 nameid_formats.append(nf.text.strip())
 
-        certificates = {"signing": [], "encryption": []}
+        certificates = {"signing": [], "encryption": [], "encryption_methods": []}
         for kd in sp_sso.findall("md:KeyDescriptor", NS):
-            use = kd.get("use", "signing")
+            use = kd.get("use", "")
             cert_el = kd.find(".//ds:X509Certificate", NS)
             if cert_el is not None and cert_el.text:
                 cert_text = cert_el.text.strip()
@@ -259,6 +276,12 @@ class Registry:
                     certificates[use].append(cert_text)
                 else:
                     certificates["signing"].append(cert_text)
+                    certificates["encryption"].append(cert_text)
+            if use in ["", "encryption"]:
+                for method in kd.findall("md:EncryptionMethod", NS):
+                    algorithm = str(method.get("Algorithm", "")).strip()
+                    if algorithm and algorithm not in certificates["encryption_methods"]:
+                        certificates["encryption_methods"].append(algorithm)
 
         requested_attributes = []
         acs_el = sp_sso.find(".//md:AttributeConsumingService", NS)
@@ -277,15 +300,34 @@ class Registry:
             "has_signing_cert": len(certificates["signing"]) > 0,
             "has_encryption_cert": len(certificates["encryption"]) > 0,
             "has_slo": len(slo_endpoints) > 0,
+            "metadata_signature_present": ed.find("ds:Signature", NS) is not None,
         }
+
+        flags["metadata_signature_valid"] = False
+        if flags["metadata_signature_present"]:
+            signature_cert = ed.find("ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate", NS)
+            if signature_cert is not None and signature_cert.text:
+                cert_pem = "-----BEGIN CERTIFICATE-----\n" + "".join(signature_cert.text.split()) + "\n-----END CERTIFICATE-----\n"
+                try:
+                    XMLVerifier().verify(ed, x509_cert=cert_pem, id_attribute="ID")
+                    flags["metadata_signature_valid"] = True
+                except Exception:
+                    pass
 
         warnings = []
         if not flags["has_signing_cert"]:
             warnings.append("SP 메타데이터에 서명 인증서가 없습니다.")
         if not flags["has_slo"]:
             warnings.append("SP 메타데이터에 SingleLogoutService가 없습니다.")
+        warnings.extend(slo_warnings)
         if not flags["has_encryption_cert"]:
             warnings.append("SP 메타데이터에 암호화 인증서가 없습니다.")
+        if not flags["metadata_signature_present"]:
+            warnings.append("서명되지 않은 SP 메타데이터는 호환 시험으로 등록됩니다.")
+        elif not flags["metadata_signature_valid"]:
+            warnings.append("SP 메타데이터 signature 검증에 실패했습니다.")
+        flags["standards_warnings"] = list(warnings)
+        flags["standards_status"] = "compatibility" if warnings else "standard"
 
         return {
             "entity_id": entity_id,

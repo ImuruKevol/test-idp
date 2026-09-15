@@ -4,6 +4,8 @@ struct = wiz.model("portal/oidcidp/struct")
 
 try:
 	payload = struct.provider.discovery()
+except ValueError as e:
+	wiz.response.status(400, message=str(e))
 except Exception as e:
 	wiz.response.status(500, message=str(e))
 

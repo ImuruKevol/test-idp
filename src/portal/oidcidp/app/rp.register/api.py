@@ -16,7 +16,7 @@ def _require_admin():
 
 def bootstrap():
     wiz.response.status(200, data={
-        "clients": struct.registry.list(),
+        "clients": [struct.registry.public_view(item) for item in struct.registry.list()],
         "provider": struct.provider.info(),
         "options": {
             "auth_methods": struct.registry.auth_method_options(),
@@ -41,14 +41,18 @@ def register():
         "jwks": wiz.request.query("jwks", ""),
         "jwks_uri": wiz.request.query("jwks_uri", ""),
         "extra": wiz.request.query("extra", "{}"),
+        "active": wiz.request.query("active", "true"),
+        "allow_plain_pkce": wiz.request.query("allow_plain_pkce", "false"),
     }
     try:
         result = struct.registry.register(params)
     except Exception as e:
         wiz.response.status(400, message=str(e))
 
-    result["provider"] = struct.provider.info()
-    wiz.response.status(200, data=result)
+    response = struct.registry.public_view(result, include_secret=True)
+    response["client_secret_one_time"] = bool(result.get("client_secret"))
+    response["provider"] = struct.provider.info()
+    wiz.response.status(200, data=response)
 
 
 def get():
@@ -57,7 +61,7 @@ def get():
         result = struct.registry.get(id=item_id)
     except Exception as e:
         wiz.response.status(404, message=str(e))
-    wiz.response.status(200, data=result)
+    wiz.response.status(200, data=struct.registry.public_view(result))
 
 
 def update():
@@ -75,6 +79,8 @@ def update():
         "jwks": wiz.request.query("jwks", ""),
         "jwks_uri": wiz.request.query("jwks_uri", ""),
         "extra": wiz.request.query("extra", "{}"),
+        "active": wiz.request.query("active", "true"),
+        "allow_plain_pkce": wiz.request.query("allow_plain_pkce", "false"),
     }
     try:
         result = struct.registry.update(item_id, params)
@@ -87,7 +93,7 @@ def update():
         )
     except Exception as e:
         wiz.response.status(400, message=str(e))
-    wiz.response.status(200, data=result)
+    wiz.response.status(200, data=struct.registry.public_view(result))
 
 
 def delete():

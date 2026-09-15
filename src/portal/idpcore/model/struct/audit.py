@@ -1,10 +1,13 @@
 class Audit:
+    MAX_LIST_LIMIT = 200
+
     def __init__(self, core):
         self.core = core
         self.db = core.db("idp_audit_log")
 
-    def list(self, protocol="", action="", status="", actor_id="", target_type="", target_id=""):
-        kwargs = dict(orderby="created", order="DESC")
+    def list(self, protocol="", action="", status="", actor_id="", target_type="", target_id="", limit=100):
+        limit = max(1, min(int(limit or 100), self.MAX_LIST_LIMIT))
+        kwargs = dict(orderby="created", order="DESC", page=1, dump=limit)
         if protocol:
             kwargs["protocol"] = protocol
         if action:

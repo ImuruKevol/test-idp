@@ -34,9 +34,25 @@ export class Component implements OnInit, OnDestroy {
 
     public tabClass(name: string) {
         if (this.isTab(name)) {
-            return 'inline-flex h-8 items-center rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white';
+            return 'flex min-w-0 items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-950 shadow-sm';
         }
-        return 'inline-flex h-8 items-center rounded-md px-3 text-xs font-semibold text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950';
+        return 'flex min-w-0 items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-slate-600 transition hover:border-slate-200 hover:bg-white hover:text-slate-950';
+    }
+
+    public stepClass(name: string) {
+        return this.isTab(name)
+            ? 'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-600 text-xs font-bold text-white'
+            : 'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-xs font-bold text-slate-600';
+    }
+
+    public tabTitle() {
+        const labels: any = {
+            register: 'RP 관리',
+            publish: 'Provider 정보',
+            authorizecheck: '로그인 확인',
+            logoutcheck: '로그아웃 확인',
+        };
+        return labels[this.tab] || labels.register;
     }
 
     private async syncTab() {

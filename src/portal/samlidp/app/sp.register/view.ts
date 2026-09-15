@@ -9,6 +9,7 @@ export class Component implements OnInit {
     public xmlInput: string = '';
     public registerResult: any = null;
     public selectedSp: any = null;
+    public detailTab: string = 'overview';
 
     constructor(public service: Service) { }
 
@@ -48,8 +49,20 @@ export class Component implements OnInit {
 
     public async showDetail(sp: any) {
         this.selectedSp = sp;
+        this.detailTab = 'overview';
         this.mode = 'detail';
         await this.service.render();
+    }
+
+    public async setDetailTab(name: string) {
+        this.detailTab = name;
+        await this.service.render();
+    }
+
+    public detailTabClass(name: string) {
+        return this.detailTab === name
+            ? 'border-orange-500 text-orange-700'
+            : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800';
     }
 
     public async onFileUpload(event: any) {

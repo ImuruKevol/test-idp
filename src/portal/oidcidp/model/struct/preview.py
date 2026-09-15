@@ -18,7 +18,12 @@ class Preview:
         }
 
     def history(self, category, limit=8):
-        rows = self.struct.core.debug_payload.list(protocol="oidc", category=category)
+        limit = max(1, min(int(limit or 8), 50))
+        rows = self.struct.core.debug_payload.list(
+            protocol="oidc",
+            category=category,
+            limit=limit,
+        )
         result = []
         for row in rows[:limit]:
             item = dict(row)
@@ -314,7 +319,8 @@ class Preview:
             authorize_request["claims"] = claims_param
         authorize_url_payload = {key: value for key, value in authorize_request.items() if value not in ["", None, {}]}
         authorize_url = self.struct.provider.info()["authorization_endpoint"]
-        raw_authorize_url = f"{authorize_url}?{urllib.parse.urlencode(authorize_url_payload, doseq=True)}"
+        authorize_separator = "&" if "?" in authorize_url else "?"
+        raw_authorize_url = f"{authorize_url}{authorize_separator}{urllib.parse.urlencode(authorize_url_payload, doseq=True)}"
 
         redirect_payload = {}
         authorization_code = ""
@@ -421,18 +427,39 @@ class Preview:
         client_id = str(params.get("client_id", "")).strip()
         user_id = str(params.get("user_id", "")).strip()
         state = str(params.get("state", "")).strip()
+        logout_hint = str(params.get("logout_hint", "")).strip()
+        ui_locales = str(params.get("ui_locales", "")).strip()
         requested_redirect = str(params.get("post_logout_redirect_uri", "")).strip()
         id_token_hint = str(params.get("id_token_hint", "")).strip()
         local_session_clear = self._parse_bool(params.get("local_session_clear", True))
 
-        client = self.struct.registry.get(client_id=client_id)
         provider = self.struct.provider
         warnings = []
         decoded_hint = {}
         user = None
 
         if id_token_hint:
-            decoded = provider.decode_without_verify(id_token_hint)
+            try:
+                unverified = provider.decode_without_verify(id_token_hint)
+                hint_audience = unverified.get("payload", {}).get("aud", "")
+                if not client_id:
+                    client_id = hint_audience[0] if isinstance(hint_audience, list) and hint_audience else str(hint_audience)
+            except Exception:
+                raise Exception("id_token_hint 형식이 올바르지 않습니다.")
+        client = self.struct.registry.get(client_id=client_id)
+        if client is None or client.get("expired") or client.get("active") is False:
+            raise Exception("등록된 활성 RP를 찾을 수 없습니다.")
+
+        if id_token_hint:
+            try:
+                decoded = provider.verify_jwt(
+                    id_token_hint,
+                    allowed_algs=["RS256", "PS256", "ES256", "HS256"],
+                    secret=client.get("client_secret", ""),
+                    expected_issuer=provider.issuer(),
+                )
+            except Exception:
+                raise Exception("id_token_hint signature 또는 유효 시간이 올바르지 않습니다.")
             decoded_hint = decoded.get("payload", {})
             audience = decoded_hint.get("aud", "")
             if isinstance(audience, list):
@@ -471,6 +498,17 @@ class Preview:
         else:
             redirect_target = provider.info()["issuer"]
             warnings.append("등록된 post_logout_redirect_uri가 없어 issuer로 복귀합니다.")
+        if state and redirect_target in allowed_redirects:
+            parsed_redirect = urllib.parse.urlsplit(redirect_target)
+            redirect_query = urllib.parse.parse_qsl(parsed_redirect.query, keep_blank_values=True)
+            redirect_query.append(("state", state))
+            redirect_target = urllib.parse.urlunsplit((
+                parsed_redirect.scheme,
+                parsed_redirect.netloc,
+                parsed_redirect.path,
+                urllib.parse.urlencode(redirect_query),
+                parsed_redirect.fragment,
+            ))
 
         session_match = {
             "client_match": False,
@@ -492,14 +530,17 @@ class Preview:
 
         request_payload = {
             "id_token_hint": id_token_hint,
+            "logout_hint": logout_hint,
             "post_logout_redirect_uri": requested_redirect or "",
             "state": state,
+            "ui_locales": ui_locales,
         }
         request_payload = {key: value for key, value in request_payload.items() if value not in ["", None]}
         end_session_endpoint = provider.info()["end_session_endpoint"]
         end_session_url = end_session_endpoint
         if request_payload:
-            end_session_url = f"{end_session_endpoint}?{urllib.parse.urlencode(request_payload, doseq=True)}"
+            logout_separator = "&" if "?" in end_session_endpoint else "?"
+            end_session_url = f"{end_session_endpoint}{logout_separator}{urllib.parse.urlencode(request_payload, doseq=True)}"
 
         debug_key = self._create_debug_entry("logout", client["client_id"], {
             "client_id": client["client_id"],
@@ -511,7 +552,7 @@ class Preview:
 
         return {
             "history_key": debug_key,
-            "client": client,
+            "client": self.struct.registry.public_view(client),
             "user": {
                 "id": user.get("id", "") if user else decoded_hint.get("sub", ""),
                 "username": user.get("username", "") if user else "",

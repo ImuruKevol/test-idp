@@ -1,10 +1,13 @@
 class DebugPayload:
+    MAX_LIST_LIMIT = 200
+
     def __init__(self, core):
         self.core = core
         self.db = core.db("idp_debug_payload")
 
-    def list(self, protocol="", category="", target_type="", target_id=""):
-        kwargs = dict(orderby="created", order="DESC")
+    def list(self, protocol="", category="", target_type="", target_id="", limit=50):
+        limit = max(1, min(int(limit or 50), self.MAX_LIST_LIMIT))
+        kwargs = dict(orderby="created", order="DESC", page=1, dump=limit)
         if protocol:
             kwargs["protocol"] = protocol
         if category:

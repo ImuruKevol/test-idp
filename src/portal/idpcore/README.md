@@ -72,7 +72,7 @@ core.attribute_preset.seed_defaults(force=False)
 ### core.debug_payload (DebugPayload Sub-Struct)
 
 ```python
-core.debug_payload.list(protocol="", category="", target_type="", target_id="")
+core.debug_payload.list(protocol="", category="", target_type="", target_id="", limit=50)
 core.debug_payload.get(id=None, key=None)
 core.debug_payload.create(data)            # key 자동 생성 가능
 core.debug_payload.update(data, id=None, key=None)
@@ -82,7 +82,7 @@ core.debug_payload.delete(id=None, key=None)
 ### core.audit (Audit Sub-Struct)
 
 ```python
-core.audit.list(protocol="", action="", status="", actor_id="", target_type="", target_id="")
+core.audit.list(protocol="", action="", status="", actor_id="", target_type="", target_id="", limit=100)
 core.audit.get(id)
 core.audit.create(data)                    # action 필수
 core.audit.log(action, **kwargs)           # 편의 메서드

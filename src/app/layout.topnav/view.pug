@@ -1,6 +1,6 @@
 div(class="flex h-full min-h-0 flex-col bg-[#f6f7f9]")
     header(class="sticky top-0 z-30 border-b border-zinc-200 bg-white/95 backdrop-blur")
-        div(class="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-2.5 sm:px-5")
+        div(class="mx-auto flex w-full max-w-[1440px] items-center gap-3 px-4 py-2.5 sm:px-6 lg:px-8")
             a(routerLink="/", class="flex min-w-0 items-center gap-2.5")
                 div(class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-white")
                     img(src="/assets/brand/test-idp-favicon.svg", alt="Test Identity Provider", class="h-6 w-6")
@@ -9,7 +9,7 @@ div(class="flex h-full min-h-0 flex-col bg-[#f6f7f9]")
                     p(class="truncate text-[11px] leading-4 text-zinc-500") SAML / OIDC test provider
 
             nav(class="flex flex-1 items-center justify-center gap-1")
-                a(routerLink="/", [class]="navClass('/')") Overview
+                a(routerLink="/", [class]="navClass('/')") 홈
                 a(routerLink="/saml/register", [class]="navClass('/saml')") SAML
                 a(routerLink="/oidc/register", [class]="navClass('/oidc')") OIDC
 

@@ -1,5 +1,7 @@
 import datetime
 import json
+import urllib.parse
+import re
 
 
 DEFAULT_GRANT_TYPES = ["authorization_code", "refresh_token"]
@@ -41,6 +43,7 @@ class Registry:
         return [
             "client_secret_basic",
             "client_secret_post",
+            "client_secret_jwt",
             "private_key_jwt",
             "none",
         ]
@@ -149,14 +152,76 @@ class Registry:
         if value in [None, ""]:
             return None
         if isinstance(value, dict):
-            return value
-        try:
-            parsed = json.loads(value)
-        except Exception:
-            raise Exception("JWKS JSON 형식이 올바르지 않습니다.")
+            parsed = value
+        else:
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                raise Exception("JWKS JSON 형식이 올바르지 않습니다.")
         if not isinstance(parsed, dict):
             raise Exception("JWKS는 JSON 객체여야 합니다.")
+        keys = parsed.get("keys")
+        if not isinstance(keys, list) or not keys:
+            raise Exception("JWKS에는 하나 이상의 공개 JWK가 필요합니다.")
+        if len(keys) > 32:
+            raise Exception("JWKS는 최대 32개의 공개키를 포함할 수 있습니다.")
+        private_fields = {"d", "p", "q", "dp", "dq", "qi", "oth", "k"}
+        kids = set()
+        for key in keys:
+            if not isinstance(key, dict):
+                raise Exception("JWKS의 각 key는 JSON 객체여야 합니다.")
+            if private_fields.intersection(key):
+                raise Exception("JWKS에는 private key 필드를 포함할 수 없습니다.")
+            kty = str(key.get("kty", ""))
+            if kty not in ["RSA", "EC"]:
+                raise Exception("JWKS는 RSA 또는 P-256 EC 공개키만 지원합니다.")
+            if kty == "EC" and key.get("crv") != "P-256":
+                raise Exception("EC JWK는 P-256 curve만 지원합니다.")
+            alg = str(key.get("alg", ""))
+            if alg and alg not in ["RS256", "PS256", "ES256"]:
+                raise Exception("JWK alg는 RS256, PS256, ES256 중 하나여야 합니다.")
+            if key.get("use") not in [None, "", "sig"]:
+                raise Exception("client authentication JWK의 use는 sig여야 합니다.")
+            kid = str(key.get("kid", ""))
+            if kid and kid in kids:
+                raise Exception("JWKS에 중복 kid를 사용할 수 없습니다.")
+            if kid:
+                kids.add(kid)
         return parsed
+
+    def _normalize_uri(self, value, field):
+        value = str(value or "").strip()
+        if not value:
+            return ""
+        parsed = urllib.parse.urlparse(value)
+        if parsed.scheme not in ["https", "http"] or not parsed.netloc:
+            raise Exception(f"{field}는 http 또는 https 절대 URL이어야 합니다.")
+        if parsed.username or parsed.password:
+            raise Exception(f"{field}에 사용자 정보를 포함할 수 없습니다.")
+        return value
+
+    def _standards_warnings(self, item):
+        warnings = []
+        for uri in list(item.get("redirect_uris") or []) + list(item.get("post_logout_redirect_uris") or []):
+            parsed = urllib.parse.urlparse(str(uri))
+            if parsed.fragment:
+                warnings.append("URI fragment 사용은 표준 등록 방식이 아닙니다.")
+            host = (parsed.hostname or "").lower()
+            if parsed.scheme == "http" and host not in ["localhost", "127.0.0.1", "::1"]:
+                warnings.append("HTTPS가 아닌 callback URL은 호환 시험용입니다.")
+        method = item.get("token_endpoint_auth_method")
+        jwks_uri = str((item.get("extra") or {}).get("jwks_uri", ""))
+        if jwks_uri and urllib.parse.urlparse(jwks_uri).scheme != "https":
+            warnings.append("HTTPS가 아닌 JWKS URI는 호환 시험용입니다.")
+        if method == "none":
+            warnings.append("Public Client는 Authorization Code + PKCE S256 사용이 필요합니다.")
+        if item.get("extra", {}).get("allow_plain_pkce") is True:
+            warnings.append("PKCE plain은 호환 시험용이며 S256 사용을 권장합니다.")
+        result = []
+        for warning in warnings:
+            if warning not in result:
+                result.append(warning)
+        return result
 
     def _serialize(self, row):
         if row is None:
@@ -189,10 +254,22 @@ class Registry:
             item["expires"] = value.isoformat()
 
         item["public_client"] = item.get("token_endpoint_auth_method") == "none"
+        item["active"] = item.get("extra", {}).get("active", True) is not False
         item["protected"] = item.get("client_id") in self._protected_client_ids()
         item["can_delete"] = item["protected"] is False
         item["expired"] = self.is_expired(item)
+        item["standards_warnings"] = self._standards_warnings(item)
+        item["standards_status"] = "compatibility" if item["standards_warnings"] else "standard"
         return item
+
+    def public_view(self, item, include_secret=False):
+        result = dict(item or {})
+        secret = str(result.get("client_secret", "") or "")
+        if not include_secret:
+            result.pop("client_secret", None)
+        result["has_client_secret"] = bool(secret)
+        result["client_secret_masked"] = "••••••••••••" if secret else ""
+        return result
 
     def is_expired(self, row):
         expires = self._parse_datetime(row.get("expires"))
@@ -221,8 +298,13 @@ class Registry:
         redirect_uris = self._normalize_list(item.get("redirect_uris"))
         if len(redirect_uris) == 0:
             raise Exception("redirect_uri를 하나 이상 입력해주세요.")
+        redirect_uris = [self._normalize_uri(value, "redirect_uri") for value in redirect_uris]
 
         post_logout_redirect_uris = self._normalize_list(item.get("post_logout_redirect_uris"))
+        post_logout_redirect_uris = [
+            self._normalize_uri(value, "post_logout_redirect_uri")
+            for value in post_logout_redirect_uris
+        ]
         grant_types = self._normalize_list(item.get("grant_types")) or list(DEFAULT_GRANT_TYPES)
         response_types = self._normalize_list(item.get("response_types")) or list(DEFAULT_RESPONSE_TYPES)
         scope_policy = self._normalize_list(item.get("scope_policy")) or list(DEFAULT_SCOPE_POLICY)
@@ -241,8 +323,11 @@ class Registry:
         jwks = self._normalize_jwks(item.get("jwks"))
         extra = self._normalize_object(current.get("extra"), {})
         extra.update(self._normalize_object(item.get("extra"), {}))
+        reviewops_profile = str(extra.get("reviewops_profile", "") or "")
+        if reviewops_profile and re.fullmatch(r"[a-z0-9-]{1,64}", reviewops_profile) is None:
+            raise Exception("실행 설정 이름은 영문 소문자, 숫자, 하이픈만 사용해 1~64자로 입력해야 합니다.")
 
-        jwks_uri = str(item.get("jwks_uri", "")).strip()
+        jwks_uri = self._normalize_uri(item.get("jwks_uri", ""), "jwks_uri")
         extra.pop("jwks_uri", None)
         extra.pop("warning_public_flow", None)
 
@@ -251,6 +336,11 @@ class Registry:
 
         if public_client and any(resp in ["token", "id_token token"] for resp in response_types):
             extra["warning_public_flow"] = "public client with front-channel tokens"
+
+        active_value = item.get("active", current.get("active", extra.get("active", True)))
+        extra["active"] = str(active_value).lower() not in ["0", "false", "no", "off"]
+        allow_plain = item.get("allow_plain_pkce", extra.get("allow_plain_pkce", False))
+        extra["allow_plain_pkce"] = str(allow_plain).lower() in ["1", "true", "yes", "on"]
 
         if str(extra.get("notes", "")).strip() == "":
             extra.pop("notes", None)

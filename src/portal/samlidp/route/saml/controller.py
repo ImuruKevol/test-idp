@@ -1,6 +1,15 @@
 import html
+import base64
+import datetime
 import json
 import re
+import uuid
+import zlib
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from lxml import etree
 
 struct = wiz.model("portal/samlidp/struct")
 rate_limiter = wiz.model("portal/idpcore/struct/rate_limiter")
@@ -10,12 +19,19 @@ AUTHN_CONTEXT_OPTIONS = [
     ("REFEDS SFA", "https://refeds.org/profile/sfa"),
     ("PasswordProtectedTransport", "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport"),
 ]
+SAML_SSO_SESSION_TTL_SECONDS = 8 * 3600
 
 def _client_ip():
     try:
         return wiz.request.ip()
     except Exception:
         return "unknown"
+
+def _raw_query_string():
+    try:
+        return wiz.request._flask.request.query_string.decode("ascii")
+    except Exception:
+        return ""
 
 def _is_admin():
     try:
@@ -38,17 +54,16 @@ def _serialize_sp(row):
 
 def _find_active_user(user_id="", username="", email=""):
     try:
-        rows = struct.core.user.list_active()
+        user = struct.core.user.get(
+            id=user_id or None,
+            username=username or None,
+            email=email or None,
+        )
     except Exception:
-        rows = []
-    for row in rows:
-        if user_id and row.get("id") == user_id:
-            return row
-        if username and row.get("username") == username:
-            return row
-        if email and row.get("email") == email:
-            return row
-    return None
+        return None
+    if user is None or struct.core.user.is_expired(user):
+        return None
+    return user
 
 def _is_admin_account(user):
     if not user:
@@ -58,6 +73,10 @@ def _is_admin_account(user):
     return role == "admin" or username == "admin"
 
 def _session_sso_user():
+    if struct.session.is_expired("saml_auth_time", SAML_SSO_SESSION_TTL_SECONDS):
+        struct.session.clear()
+        return None
+
     session_user_id = struct.session.get("id", "")
     if session_user_id:
         user = _find_active_user(user_id=session_user_id)
@@ -85,6 +104,8 @@ def _set_session_user(user):
         email=user.get("email", ""),
         name=user.get("display_name", user.get("username", "")),
         role=user.get("role", "tester"),
+        saml_session_index=f"_sidx_{uuid.uuid4().hex[:20]}",
+        saml_auth_time=datetime.datetime.now(datetime.timezone.utc).isoformat(),
     )
 
 def _request_authn_context_class_ref():
@@ -93,6 +114,40 @@ def _request_authn_context_class_ref():
         or str(wiz.request.query("AuthnContextClassRef", "") or "").strip()
         or str(wiz.request.query("acr_values", "") or "").strip()
     )
+
+def _strict_query_bool(name, default):
+    raw = str(wiz.request.query(name, "true" if default else "false") or "").strip().lower()
+    if raw not in ("true", "false"):
+        raise ValueError(f"{name}은 true 또는 false여야 합니다.")
+    return raw == "true"
+
+def _strict_query_string_list(name):
+    raw = wiz.request.query(name, "")
+    if raw in (None, ""):
+        return []
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    try:
+        value = json.loads(str(raw))
+    except Exception:
+        raise ValueError(f"{name}은 JSON 문자열 배열이어야 합니다.")
+    if not isinstance(value, list):
+        raise ValueError(f"{name}은 JSON 문자열 배열이어야 합니다.")
+    return value
+
+def _strict_query_attribute_values(name):
+    raw = wiz.request.query(name, "")
+    if raw in (None, ""):
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        value = json.loads(str(raw))
+    except Exception:
+        raise ValueError(f"{name}은 JSON 객체여야 합니다.")
+    if not isinstance(value, dict):
+        raise ValueError(f"{name}은 JSON 객체여야 합니다.")
+    return value
 
 def _first_authn_context_class_ref(value):
     if value is None:
@@ -119,6 +174,14 @@ def _first_authn_context_class_ref(value):
 
 def _resolve_sso_request_state():
     default_nameid = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+    reviewops_profile = struct.metadata.reviewops_profile(wiz.request.query("reviewops_profile", ""))
+    response_defaults = struct.metadata.response_defaults(reviewops_profile)
+    sign_response_value = str(wiz.request.query("sign_response", "") or "").strip().lower()
+    sign_assertion_value = str(wiz.request.query("sign_assertion", "") or "").strip().lower()
+    if sign_response_value not in ("", "true", "false"):
+        raise ValueError("sign_response은 true 또는 false여야 합니다.")
+    if sign_assertion_value not in ("", "true", "false"):
+        raise ValueError("sign_assertion은 true 또는 false여야 합니다.")
     state = {
         "transaction_id": wiz.request.query("transaction_id", ""),
         "sp_entity_id": wiz.request.query("sp_entity_id", ""),
@@ -127,11 +190,35 @@ def _resolve_sso_request_state():
         "relay_state": wiz.request.query("relay_state", ""),
         "nameid_format": wiz.request.query("nameid_format", default_nameid) or default_nameid,
         "preset_id": _default_sso_preset_id(),
-        "sign_response": wiz.request.query("sign_response", "true") == "true",
-        "sign_assertion": wiz.request.query("sign_assertion", "true") == "true",
+        "sign_response": response_defaults["sign_response"] if sign_response_value == "" else sign_response_value == "true",
+        "sign_assertion": response_defaults["sign_assertion"] if sign_assertion_value == "" else sign_assertion_value == "true",
+        "omit_attributes": response_defaults["omit_attributes"],
+        "attribute_values": response_defaults["attribute_values"],
+        "encrypt_assertion": response_defaults.get("encrypt_assertion", False),
+        "content_encryption_algorithm": response_defaults.get("content_encryption_algorithm", "aes256-gcm"),
+        "key_transport_algorithm": response_defaults.get("key_transport_algorithm", "rsa-oaep-sha256"),
+        "response_variant": response_defaults.get("response_variant", "standard"),
+        "time_offset_seconds": response_defaults.get("time_offset_seconds", 0),
+        "assertion_ttl_seconds": response_defaults.get("assertion_ttl_seconds", 300),
         "session_index": wiz.request.query("session_index", ""),
         "authn_context_class_ref": _request_authn_context_class_ref(),
+        "authn_context_comparison": "exact",
+        "authn_context_requested": [],
+        "authn_instant": str(struct.session.get("saml_auth_time", "") or ""),
+        "force_authn": str(wiz.request.query("force_authn", "false") or "false"),
+        "is_passive": str(wiz.request.query("is_passive", "false") or "false"),
     }
+    if not state["session_index"]:
+        state["session_index"] = str(struct.session.get("saml_session_index", "") or "")
+    if not state["session_index"] and _session_sso_user() is not None:
+        state["session_index"] = f"_sidx_{uuid.uuid4().hex[:20]}"
+        state["authn_instant"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        struct.session.set(
+            saml_session_index=state["session_index"],
+            saml_auth_time=state["authn_instant"],
+        )
+    if reviewops_profile:
+        state["reviewops_profile"] = reviewops_profile
 
     if any([state["transaction_id"], state["sp_entity_id"], state["acs_url"], state["request_id"]]):
         if state["transaction_id"]:
@@ -149,6 +236,7 @@ def _resolve_sso_request_state():
                         state["nameid_format"] = requested_nameid
                 if not state["authn_context_class_ref"]:
                     state["authn_context_class_ref"] = _first_authn_context_class_ref(tx.get("authn_context_requested", []))
+                state["authn_context_requested"] = tx.get("authn_context_requested", [])
         return state
 
     method = wiz.request.method()
@@ -158,13 +246,25 @@ def _resolve_sso_request_state():
         raise Exception("SAMLRequest 파라미터가 필요합니다.")
 
     binding = "Redirect" if method == "GET" else "POST"
-    parsed = struct.process.parse_authn_request(saml_request, relay_state=relay_state, binding=binding)
+    idp_info = struct.metadata.info(reviewops_profile)
+    expected_destination = idp_info["sso_redirect" if binding == "Redirect" else "sso_post"]
+    parsed = struct.process.parse_authn_request(
+        saml_request,
+        relay_state=relay_state,
+        binding=binding,
+        raw_query=_raw_query_string(),
+        expected_destination=expected_destination,
+    )
     state["transaction_id"] = parsed.get("transaction_id", "")
     state["sp_entity_id"] = parsed.get("issuer", "")
     state["acs_url"] = parsed.get("acs_url", "")
     state["request_id"] = parsed.get("request_id", "")
     state["relay_state"] = parsed.get("relay_state", "")
     state["nameid_format"] = parsed.get("nameid_format", default_nameid) or default_nameid
+    state["force_authn"] = parsed.get("force_authn", "false")
+    state["is_passive"] = parsed.get("is_passive", "false")
+    state["authn_context_comparison"] = parsed.get("requested_authn_context_comparison", "exact") or "exact"
+    state["authn_context_requested"] = parsed.get("authn_context", [])
     if not state["authn_context_class_ref"]:
         state["authn_context_class_ref"] = _first_authn_context_class_ref(parsed.get("authn_context", []))
     return state
@@ -505,7 +605,9 @@ def _default_sso_preset_id():
         return preset["id"]
     return ""
 
-def _build_sso_post_html(action_url, saml_response, relay_state=""):
+def _build_saml_post_html(action_url, parameter_name, parameter_value, relay_state="", title="Redirecting"):
+    if len(str(relay_state).encode("utf-8")) > 80:
+        raise ValueError("SLO RelayState는 80 bytes를 넘을 수 없습니다.")
     relay_input = ""
     if relay_state:
         relay_input = f'\n            <input type="hidden" name="RelayState" value="{html.escape(relay_state, quote=True)}"/>'
@@ -514,11 +616,11 @@ def _build_sso_post_html(action_url, saml_response, relay_state=""):
 <head>
     <meta charset=\"utf-8\"/>
     <meta name=\"robots\" content=\"noindex,nofollow\"/>
-    <title>Redirecting</title>
+    <title>{html.escape(title)}</title>
 </head>
 <body onload=\"document.forms[0].submit()\">
     <form method=\"post\" action=\"{html.escape(action_url, quote=True)}\">
-        <input type=\"hidden\" name=\"SAMLResponse\" value=\"{html.escape(saml_response, quote=True)}\"/>{relay_input}
+        <input type=\"hidden\" name=\"{html.escape(parameter_name, quote=True)}\" value=\"{html.escape(parameter_value, quote=True)}\"/>{relay_input}
         <noscript>
             <p>SAML 응답을 서비스로 전송할 준비가 되었습니다.</p>
             <button type=\"submit\">계속</button>
@@ -528,27 +630,161 @@ def _build_sso_post_html(action_url, saml_response, relay_state=""):
 </html>
 """
 
-def _send_html_response(body):
+def _build_sso_post_html(action_url, saml_response, relay_state=""):
+    return _build_saml_post_html(action_url, "SAMLResponse", saml_response, relay_state)
+
+def _build_saml_redirect_url(action_url, parameter_name, xml_payload, relay_state="",
+                             signing_key_pem=""):
+    if len(str(relay_state).encode("utf-8")) > 80:
+        raise ValueError("SLO RelayState는 80 bytes를 넘을 수 없습니다.")
+    try:
+        root = etree.fromstring(xml_payload.encode("utf-8"))
+        signature = root.find("{http://www.w3.org/2000/09/xmldsig#}Signature")
+        if signature is not None:
+            root.remove(signature)
+        xml_payload = etree.tostring(
+            root,
+            pretty_print=False,
+            xml_declaration=True,
+            encoding="UTF-8",
+        ).decode("utf-8")
+    except Exception:
+        pass
+    compressor = zlib.compressobj(wbits=-15)
+    encoded = base64.b64encode(
+        compressor.compress(xml_payload.encode("utf-8")) + compressor.flush()
+    ).decode("utf-8")
+    parsed = urlparse(action_url)
+    protocol_query = [(parameter_name, encoded)]
+    if relay_state:
+        protocol_query.append(("RelayState", relay_state))
+    if signing_key_pem:
+        # OASIS SAML Bindings 3.4.4.1: Redirect 서명은 XML 내부
+        # Signature가 아니라 정확히 SAMLRequest/SAMLResponse,
+        # RelayState, SigAlg 순서의 URL-encoded octet string을 서명한다.
+        signature_algorithm = (
+            "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
+        )
+        protocol_query.append(("SigAlg", signature_algorithm))
+        signing_input = urlencode(protocol_query).encode("ascii")
+        key_value = (
+            signing_key_pem.encode("utf-8")
+            if isinstance(signing_key_pem, str)
+            else signing_key_pem
+        )
+        private_key = serialization.load_pem_private_key(
+            key_value,
+            password=None,
+        )
+        signature = private_key.sign(
+            signing_input,
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        protocol_query.append((
+            "Signature",
+            base64.b64encode(signature).decode("ascii"),
+        ))
+    query = list(parse_qsl(parsed.query, keep_blank_values=True))
+    query.extend(protocol_query)
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+def _build_slo_result_html(result):
+    checks = "".join(
+        f'<li data-check="{html.escape(str(key), quote=True)}" data-pass="{str(value).lower()}">{html.escape(str(key))}: {html.escape(str(value))}</li>'
+        for key, value in result.items()
+        if isinstance(value, bool)
+    )
+    valid = str(result.get("valid") is True).lower()
+    return f"""<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"/><meta name="robots" content="noindex,nofollow"/>
+<title>SAML 로그아웃 검증 결과</title></head>
+<body data-reviewops-slo-result="{valid}"><main><h1>SAML 로그아웃 검증 결과</h1><ul>{checks}</ul></main></body></html>"""
+
+def _send_html_response(body, status=200):
     flask = wiz.response._flask
     resp = flask.Response(body, mimetype="text/html")
     resp.headers["Cache-Control"] = "no-store"
     resp.headers["Pragma"] = "no-cache"
+    wiz.response.set_status(status)
     wiz.response.response(resp)
 
 segment = wiz.request.match("/api/saml/<action>")
 action = segment.action if segment else None
 
+# --- ReviewOps profile-specific SAML response defaults ---
+if action == "reviewops-profile-config":
+    profile = wiz.request.query("reviewops_profile", "")
+    if wiz.request.method() == "POST":
+        try:
+            result = struct.metadata.configure_response_defaults(
+                profile,
+                sign_response=_strict_query_bool("sign_response", True),
+                sign_assertion=_strict_query_bool("sign_assertion", True),
+                omit_attributes=_strict_query_string_list("omit_attributes"),
+                attribute_values=_strict_query_attribute_values("attribute_values"),
+                response_options={
+                    "encrypt_assertion": _strict_query_bool("encrypt_assertion", False),
+                    "content_encryption_algorithm": wiz.request.query("content_encryption_algorithm", "aes256-gcm"),
+                    "key_transport_algorithm": wiz.request.query("key_transport_algorithm", "rsa-oaep-sha256"),
+                    "response_variant": wiz.request.query("response_variant", "standard"),
+                    "time_offset_seconds": int(wiz.request.query("time_offset_seconds", 0)),
+                    "assertion_ttl_seconds": int(wiz.request.query("assertion_ttl_seconds", 300)),
+                },
+            )
+        except ValueError as e:
+            wiz.response.status(400, message=str(e))
+        wiz.response.status(200, data=result)
+    if wiz.request.method() != "GET":
+        wiz.response.status(405, message="profile SAML response 기본값은 GET 또는 POST만 허용합니다.")
+    try:
+        result = struct.metadata.response_defaults(profile)
+    except ValueError as e:
+        wiz.response.status(400, message=str(e))
+    wiz.response.status(200, data=result)
+
+if action == "reviewops-profile-clear":
+    if wiz.request.method() != "POST":
+        wiz.response.status(405, message="profile SAML response 기본값 초기화는 POST만 허용합니다.")
+    try:
+        result = struct.metadata.clear_response_defaults(wiz.request.query("reviewops_profile", ""))
+    except ValueError as e:
+        wiz.response.status(400, message=str(e))
+    wiz.response.status(200, data=result)
+
 # --- IdP Metadata (XML) ---
 if action == "metadata":
-    xml = struct.metadata.generate_xml()
+    try:
+        xml = struct.metadata.generate_xml()
+    except ValueError as e:
+        wiz.response.status(400, message=str(e))
     flask = wiz.response._flask
     resp = flask.Response(xml, mimetype="application/xml")
     resp.headers["Content-Disposition"] = 'inline; filename="idp-metadata.xml"'
     wiz.response.response(resp)
 
+# --- ReviewOps profile-bound federation metadata (XML) ---
+if action == "federation-metadata":
+    try:
+        xml = struct.metadata.generate_federation_xml(
+            wiz.request.query("reviewops_profile", "")
+        )
+    except ValueError as e:
+        wiz.response.status(400, message=str(e))
+    flask = wiz.response._flask
+    resp = flask.Response(xml, mimetype="application/xml")
+    resp.headers["Content-Disposition"] = (
+        'inline; filename="idp-federation-metadata.xml"'
+    )
+    resp.headers["Cache-Control"] = "no-store"
+    wiz.response.response(resp)
+
 # --- IdP Info (JSON) ---
 if action == "idp-info":
-    info = struct.metadata.info()
+    try:
+        info = struct.metadata.info()
+    except ValueError as e:
+        wiz.response.status(400, message=str(e))
     wiz.response.status(200, data=info)
 
 # --- SP List ---
@@ -670,6 +906,22 @@ if action == "sso-respond":
     params["sign_assertion"] = wiz.request.query("sign_assertion", "true") == "true"
     params["session_index"] = wiz.request.query("session_index", "")
     params["authn_context_class_ref"] = _request_authn_context_class_ref()
+    params["reviewops_profile"] = wiz.request.query("reviewops_profile", "")
+    if params["reviewops_profile"]:
+        response_defaults = struct.metadata.response_defaults(
+            params["reviewops_profile"]
+        )
+        params["omit_attributes"] = response_defaults["omit_attributes"]
+        params["attribute_values"] = response_defaults["attribute_values"]
+        for key, default in [
+            ("encrypt_assertion", False),
+            ("content_encryption_algorithm", "aes256-gcm"),
+            ("key_transport_algorithm", "rsa-oaep-sha256"),
+            ("response_variant", "standard"),
+            ("time_offset_seconds", 0),
+            ("assertion_ttl_seconds", 300),
+        ]:
+            params[key] = response_defaults.get(key, default)
 
     try:
         result = struct.process.build_response(params)
@@ -694,7 +946,33 @@ if action == "sso":
         prompt_html = _build_sso_prompt_html(state, error_message=str(e))
         _send_html_response(prompt_html)
 
+    force_authn = str(state.get("force_authn", "false")).strip().lower() == "true"
+    is_passive = str(state.get("is_passive", "false")).strip().lower() == "true"
+    submitted_identity = bool(
+        str(wiz.request.query("selected_user_id", "") or "").strip()
+        or str(wiz.request.query("login_id", "") or "").strip()
+        or str(wiz.request.query("password", "") or "").strip()
+    )
+    if force_authn and not submitted_identity:
+        user = None
+
     if user is None:
+        if is_passive:
+            try:
+                result = struct.process.build_authn_error_response({
+                    "request_id": state.get("request_id", ""),
+                    "acs_url": state.get("acs_url", ""),
+                    "relay_state": state.get("relay_state", ""),
+                    "reviewops_profile": state.get("reviewops_profile", ""),
+                })
+            except Exception as e:
+                wiz.response.status(400, message=str(e))
+            html_doc = _build_sso_post_html(
+                result["acs_url"],
+                result["response_b64"],
+                result.get("relay_state", ""),
+            )
+            _send_html_response(html_doc)
         prompt_html = _build_sso_prompt_html(state)
         _send_html_response(prompt_html)
 
@@ -710,8 +988,20 @@ if action == "sso":
             "preset_id": state.get("preset_id", ""),
             "sign_response": state.get("sign_response", True),
             "sign_assertion": state.get("sign_assertion", True),
+            "omit_attributes": state.get("omit_attributes", []),
+            "attribute_values": state.get("attribute_values", {}),
+            "encrypt_assertion": state.get("encrypt_assertion", False),
+            "content_encryption_algorithm": state.get("content_encryption_algorithm", "aes256-gcm"),
+            "key_transport_algorithm": state.get("key_transport_algorithm", "rsa-oaep-sha256"),
+            "response_variant": state.get("response_variant", "standard"),
+            "time_offset_seconds": state.get("time_offset_seconds", 0),
+            "assertion_ttl_seconds": state.get("assertion_ttl_seconds", 300),
             "session_index": state.get("session_index", ""),
             "authn_context_class_ref": state.get("authn_context_class_ref", ""),
+            "authn_context_comparison": state.get("authn_context_comparison", "exact"),
+            "authn_context_requested": state.get("authn_context_requested", []),
+            "authn_instant": state.get("authn_instant", ""),
+            "reviewops_profile": state.get("reviewops_profile", ""),
         })
     except Exception as e:
         wiz.response.status(400, message=str(e))
@@ -720,6 +1010,8 @@ if action == "sso":
 
 # --- Debug Raw File ---
 if action == "debug-raw":
+    if not _is_admin():
+        wiz.response.status(403, message="admin 권한이 필요합니다.")
     key = wiz.request.query("key", True)
     try:
         xml = struct.process.get_debug_raw(key)
@@ -747,15 +1039,63 @@ if action == "transaction":
 # --- SLO: Actual endpoint for SP-initiated SLO (receives LogoutRequest from SP) ---
 if action == "slo":
     method = wiz.request.method()
+    saml_response = wiz.request.query("SAMLResponse", "")
     saml_request = wiz.request.query("SAMLRequest", "")
     relay_state = wiz.request.query("RelayState", "")
+
+    if saml_response:
+        expected = struct.session.get("SAML_IDP_LOGOUT_CONTEXT", {})
+        if not isinstance(expected, dict):
+            expected = {}
+        binding = "Redirect" if method == "GET" else "POST"
+        redirect_signature_valid = None
+        redirect_signature_error = ""
+        if binding == "Redirect":
+            try:
+                raw_query = wiz.request.request().query_string.decode("ascii")
+                redirect_signature_valid, redirect_signature_error = struct.process.verify_redirect_query_signature(
+                    raw_query,
+                    "SAMLResponse",
+                    expected.get("sp_entity_id", ""),
+                )
+            except Exception as e:
+                redirect_signature_valid = False
+                redirect_signature_error = str(e)
+        try:
+            result = struct.process.parse_logout_response(
+                saml_response,
+                relay_state=relay_state,
+                binding=binding,
+                expected=expected,
+                redirect_signature_valid=redirect_signature_valid,
+                redirect_signature_error=redirect_signature_error,
+            )
+        except Exception as e:
+            wiz.response.status(400, message=str(e))
+        if result.get("valid") is True:
+            invalidated = struct.process.invalidate_sessions(expected.get("session_ids", []))
+            result["invalidated_sessions"] = invalidated
+            struct.session.clear()
+            struct.session.set(SAML_IDP_LOGOUT_RESULT=result)
+            _send_html_response(_build_slo_result_html(result))
+        struct.session.set(SAML_IDP_LOGOUT_RESULT=result)
+        _send_html_response(_build_slo_result_html(result), status=400)
 
     if not saml_request:
         wiz.response.status(400, message="SAMLRequest 파라미터가 필요합니다.")
 
     binding = "Redirect" if method == "GET" else "POST"
     try:
-        parsed = struct.process.parse_logout_request(saml_request, relay_state=relay_state, binding=binding)
+        reviewops_profile = struct.metadata.reviewops_profile(wiz.request.query("reviewops_profile", ""))
+        info = struct.metadata.info(reviewops_profile)
+        parsed = struct.process.parse_logout_request(
+            saml_request,
+            relay_state=relay_state,
+            binding=binding,
+            raw_query=_raw_query_string(),
+            expected_destination=info["slo_redirect" if binding == "Redirect" else "slo_post"],
+            allow_unsigned=str(wiz.request.query("allow_unsigned", "false")).lower() == "true",
+        )
     except Exception as e:
         wiz.response.status(400, message=str(e))
 
@@ -766,17 +1106,16 @@ if action == "slo":
 
     sp_entity_id = parsed.get("issuer", "")
     slo_destination = ""
+    endpoint_result = {"standards_status": "compatibility", "warnings": []}
     try:
-        sp = struct.registry.get(entity_id=sp_entity_id)
-        slo_urls = sp.get("slo_url", "[]")
-        if isinstance(slo_urls, str):
-            slo_urls = json.loads(slo_urls)
-        for ep in slo_urls:
-            if ep.get("location"):
-                slo_destination = ep["location"]
-                break
-    except Exception:
-        pass
+        endpoint_result = struct.process.resolve_slo_endpoint(
+            sp_entity_id,
+            binding=binding,
+            for_response=True,
+        )
+        slo_destination = endpoint_result.get("url", "")
+    except Exception as e:
+        endpoint_result["warnings"] = [str(e)]
 
     resp_params = {
         "request_id": parsed.get("request_id", ""),
@@ -785,6 +1124,7 @@ if action == "slo":
         "relay_state": relay_state,
         "status_code": "urn:oasis:names:tc:SAML:2.0:status:Success",
         "sign": True,
+        "reviewops_profile": reviewops_profile,
     }
     try:
         result = struct.process.build_logout_response(resp_params)
@@ -793,7 +1133,29 @@ if action == "slo":
 
     result["parsed_request"] = parsed
     result["invalidated_sessions"] = session_ids
-    wiz.response.status(200, data=result)
+    result["endpoint_status"] = endpoint_result.get("standards_status", "compatibility")
+    result["compatibility_warnings"] = endpoint_result.get("warnings", [])
+    if str(wiz.request.query("format", "") or "").strip().lower() == "json":
+        wiz.response.status(200, data=result)
+    if not result.get("destination"):
+        wiz.response.status(400, message="등록된 SP SingleLogoutService URL을 찾을 수 없습니다.")
+    struct.session.clear()
+    if binding == "Redirect":
+        wiz.response.redirect(_build_saml_redirect_url(
+            result["destination"],
+            "SAMLResponse",
+            result["response_xml"],
+            result.get("relay_state", ""),
+            struct.metadata.get_key_pem() if result.get("signed") else "",
+        ))
+    html_doc = _build_saml_post_html(
+        result["destination"],
+        "SAMLResponse",
+        result["response_b64"],
+        result.get("relay_state", ""),
+        title="SAML LogoutResponse 전송",
+    )
+    _send_html_response(html_doc)
 
 # --- SLO: Parse LogoutRequest (debug) ---
 if action == "slo-parse":
@@ -804,7 +1166,14 @@ if action == "slo-parse":
     relay_state = wiz.request.query("RelayState", "")
     binding = wiz.request.query("binding", "POST")
     try:
-        result = struct.process.parse_logout_request(saml_request, relay_state=relay_state, binding=binding)
+        result = struct.process.parse_logout_request(
+            saml_request,
+            relay_state=relay_state,
+            binding=binding,
+            raw_query=_raw_query_string(),
+            expected_destination=wiz.request.query("expected_destination", ""),
+            allow_unsigned=str(wiz.request.query("allow_unsigned", "false")).lower() == "true",
+        )
     except Exception as e:
         wiz.response.status(400, message=str(e))
     wiz.response.status(200, data=result)
@@ -818,6 +1187,7 @@ if action == "slo-respond":
     params["relay_state"] = wiz.request.query("relay_state", "")
     params["status_code"] = wiz.request.query("status_code", "urn:oasis:names:tc:SAML:2.0:status:Success")
     params["sign"] = wiz.request.query("sign", "true") == "true"
+    params["reviewops_profile"] = wiz.request.query("reviewops_profile", "")
 
     invalidate_ids = wiz.request.query("invalidate_ids", "")
     if invalidate_ids:
@@ -842,6 +1212,14 @@ if action == "slo-initiate":
     params["nameid_format"] = wiz.request.query("nameid_format", "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress")
     params["destination"] = wiz.request.query("destination", "")
     params["sign"] = wiz.request.query("sign", "true") == "true"
+    params["reviewops_profile"] = wiz.request.query("reviewops_profile", "")
+    relay_state = str(wiz.request.query("relay_state", "/") or "/")
+    binding = str(wiz.request.query("binding", "POST") or "POST").strip().upper()
+    if binding not in ("POST", "REDIRECT"):
+        wiz.response.status(400, message="binding은 POST 또는 Redirect여야 합니다.")
+    if len(relay_state.encode("utf-8")) > 80:
+        wiz.response.status(400, message="SLO RelayState는 80 bytes를 넘을 수 없습니다.")
+    params["binding"] = binding
 
     session_indexes_str = wiz.request.query("session_indexes", "")
     if session_indexes_str:
@@ -859,6 +1237,50 @@ if action == "slo-initiate":
         result = struct.process.build_logout_request(params)
     except Exception as e:
         wiz.response.status(400, message=str(e))
+    if str(wiz.request.query("deliver", "false") or "false").strip().lower() == "true":
+        if not result.get("destination"):
+            wiz.response.status(400, message="등록된 SP SingleLogoutService URL을 찾을 수 없습니다.")
+        try:
+            response_info = struct.metadata.info(params["reviewops_profile"])
+            response_destination = response_info[
+                "slo_redirect" if binding == "REDIRECT" else "slo_post"
+            ]
+        except Exception as e:
+            wiz.response.status(400, message=str(e))
+        matched_sessions = struct.process._match_sessions(
+            params["sp_entity_id"],
+            params["session_indexes"],
+            params["nameid_value"],
+        )
+        struct.session.set(SAML_IDP_LOGOUT_CONTEXT={
+            "request_id": result["request_id"],
+            "sp_entity_id": params["sp_entity_id"],
+            "relay_state": relay_state,
+            "response_destination": response_destination,
+            "session_ids": [item.get("id") for item in matched_sessions if item.get("id")],
+        })
+        if binding == "REDIRECT":
+            wiz.response.redirect(_build_saml_redirect_url(
+                result["destination"],
+                "SAMLRequest",
+                result["request_xml"],
+                relay_state,
+                struct.metadata.get_key_pem() if result.get("signed") else "",
+            ))
+        html_doc = _build_saml_post_html(
+            result["destination"],
+            "SAMLRequest",
+            result["request_b64"],
+            relay_state,
+            title="SAML LogoutRequest 전송",
+        )
+        _send_html_response(html_doc)
+    wiz.response.status(200, data=result)
+
+if action == "slo-result":
+    result = struct.session.get("SAML_IDP_LOGOUT_RESULT", {})
+    if not isinstance(result, dict) or not result:
+        wiz.response.status(404, message="최근 IdP 시작 SLO 검증 결과가 없습니다.")
     wiz.response.status(200, data=result)
 
 # --- SLO: Active Sessions ---

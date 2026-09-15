@@ -4,6 +4,7 @@ import { Service } from '@wiz/libs/portal/season/service';
 export class Component implements OnInit {
     public mode: string = 'input';
     public loading: boolean = false;
+    public supplementalLoading: boolean = false;
     public spList: any[] = [];
     public users: any[] = [];
     public presets: any[] = [];
@@ -23,6 +24,13 @@ export class Component implements OnInit {
     public nameidValue: string = '';
     public signResponse: boolean = true;
     public signAssertion: boolean = true;
+    public encryptAssertion: boolean = false;
+    public contentEncryptionAlgorithm: string = 'aes256-gcm';
+    public keyTransportAlgorithm: string = 'rsa-oaep-sha256';
+    public responseVariant: string = 'standard';
+    public timeOffsetSeconds: number = 0;
+    public assertionTtlSeconds: number = 300;
+    public authenticatingAuthoritiesText: string = '';
     public sessionIndex: string = '';
     public authnContextClassRef: string = 'urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport';
     public authnContextOptions: any[] = [
@@ -38,6 +46,7 @@ export class Component implements OnInit {
 
     // Result
     public responseResult: any = null;
+    public showRawResponse: boolean = false;
 
     constructor(public service: Service) { }
 
@@ -50,20 +59,32 @@ export class Component implements OnInit {
         this.loading = true;
         await this.service.render();
         try {
-            const [spRes, userRes, presetRes, txRes, catalogRes] = await Promise.all([
+            const [spRes, userRes, presetRes] = await Promise.all([
                 wiz.call("sp_list", {}),
                 wiz.call("user_list", {}),
                 wiz.call("preset_list", {}),
-                wiz.call("tx_list", {}),
-                this.service.request.post('/api/idpcore/saml-attribute-catalog', {}),
             ]);
             this.spList = spRes.code === 200 ? (spRes.data.data || spRes.data || []) : [];
             this.users = userRes.code === 200 ? (userRes.data.data || userRes.data || []) : [];
             this.presets = presetRes.code === 200 ? (presetRes.data.data || presetRes.data || []) : [];
+        } catch (e) { }
+        this.loading = false;
+        await this.service.render();
+        this.loadSupplementalData();
+    }
+
+    public async loadSupplementalData() {
+        this.supplementalLoading = true;
+        await this.service.render();
+        try {
+            const [txRes, catalogRes] = await Promise.all([
+                wiz.call("tx_list", {}),
+                this.service.request.post('/api/idpcore/saml-attribute-catalog', {}),
+            ]);
             this.transactions = txRes.code === 200 ? (txRes.data.data || txRes.data || []) : [];
             this.samlAttributeCatalog = catalogRes.code === 200 ? (catalogRes.data.data || []) : [];
         } catch (e) { }
-        this.loading = false;
+        this.supplementalLoading = false;
         await this.service.render();
     }
 
@@ -140,6 +161,13 @@ export class Component implements OnInit {
             preset_id: this.selectedPresetId,
             sign_response: this.signResponse ? 'true' : 'false',
             sign_assertion: this.signAssertion ? 'true' : 'false',
+            encrypt_assertion: this.encryptAssertion ? 'true' : 'false',
+            content_encryption_algorithm: this.contentEncryptionAlgorithm,
+            key_transport_algorithm: this.keyTransportAlgorithm,
+            response_variant: this.responseVariant,
+            time_offset_seconds: String(this.timeOffsetSeconds || 0),
+            assertion_ttl_seconds: String(this.assertionTtlSeconds || 300),
+            authenticating_authorities: JSON.stringify(String(this.authenticatingAuthoritiesText || '').split('\n').map((item) => item.trim()).filter((item) => item)),
             session_index: this.sessionIndex,
             authn_context_class_ref: this.authnContextClassRef,
             attribute_overrides: this.attributeOverrides,
@@ -189,13 +217,18 @@ export class Component implements OnInit {
         this.mode = 'input';
         this.parsedRequest = null;
         this.responseResult = null;
-        await this.loadData();
+        await this.service.render();
     }
 
     public async copyText(text: string) {
         try {
             await navigator.clipboard.writeText(text);
         } catch (e) { }
+    }
+
+    public async toggleRawResponse() {
+        this.showRawResponse = !this.showRawResponse;
+        await this.service.render();
     }
 
     public async setAuthnContextClassRef(value: string) {
@@ -226,5 +259,11 @@ export class Component implements OnInit {
         if (value === null || value === undefined) return '';
         if (typeof value === 'object') return JSON.stringify(value);
         return String(value);
+    }
+
+    public selectedSpSupportsEncryption(): boolean {
+        const issuer = this.parsedRequest?.issuer || '';
+        const sp = this.spList.find((item: any) => item.entity_id === issuer);
+        return !!sp?.flags?.has_encryption_cert;
     }
 }

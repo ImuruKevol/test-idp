@@ -383,6 +383,8 @@ session.set(key="value")     # 값 설정
 session.has("key")           # 존재 확인
 session.delete("key")        # 삭제
 session.clear()              # 전체 삭제
+session.age_seconds("auth_time")
+session.is_expired("auth_time", ttl_seconds=28800)
 ```
 
 ### Config (`portal/season/config`)

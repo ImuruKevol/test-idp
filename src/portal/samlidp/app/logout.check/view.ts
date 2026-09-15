@@ -3,15 +3,20 @@ import { Service } from '@wiz/libs/portal/season/service';
 
 export class Component implements OnInit {
     public mode: string = 'overview';
+    public workspaceTab: string = 'sessions';
     public loading: boolean = false;
     public spList: any[] = [];
     public users: any[] = [];
     public activeSessions: any[] = [];
+    public activeSessionTotal: number = 0;
+    public activeSessionWindowHours: number = 8;
+    public activeSessionLimit: number = 50;
 
     // SP-initiated SLO parse
     public samlRequestInput: string = '';
     public relayStateInput: string = '';
     public bindingInput: string = 'POST';
+    public allowUnsignedLogout: boolean = false;
     public parsedLogoutRequest: any = null;
 
     // LogoutResponse params
@@ -23,6 +28,7 @@ export class Component implements OnInit {
     public selectedUserId: string = '';
     public nameidValue: string = '';
     public nameidFormat: string = 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress';
+    public idpBinding: string = 'POST';
     public signLogoutRequest: boolean = true;
 
     // Result
@@ -46,7 +52,11 @@ export class Component implements OnInit {
             ]);
             this.spList = spRes.code === 200 ? (spRes.data.data || spRes.data || []) : [];
             this.users = userRes.code === 200 ? (userRes.data.data || userRes.data || []) : [];
-            this.activeSessions = sessRes.code === 200 ? (sessRes.data.data || sessRes.data || []) : [];
+            const sessionData = sessRes.code === 200 ? (sessRes.data.data || sessRes.data || {}) : {};
+            this.activeSessions = sessionData.items || [];
+            this.activeSessionTotal = Number(sessionData.total || 0);
+            this.activeSessionWindowHours = Number(sessionData.window_hours || 8);
+            this.activeSessionLimit = Number(sessionData.limit || 50);
         } catch (e) { }
         this.loading = false;
         await this.service.render();
@@ -64,6 +74,7 @@ export class Component implements OnInit {
                 SAMLRequest: this.samlRequestInput,
                 RelayState: this.relayStateInput,
                 binding: this.bindingInput,
+                allow_unsigned: this.allowUnsignedLogout ? 'true' : 'false',
             });
             if (res.code === 200) {
                 this.parsedLogoutRequest = res.data.data || res.data;
@@ -88,7 +99,10 @@ export class Component implements OnInit {
         const params: any = {
             request_id: this.parsedLogoutRequest?.request_id || '',
             sp_entity_id: this.parsedLogoutRequest?.issuer || '',
-            destination: this.getSpSloUrl(this.parsedLogoutRequest?.issuer || ''),
+            destination: this.getSpSloUrl(
+                this.parsedLogoutRequest?.issuer || '',
+                this.parsedLogoutRequest?.binding || 'POST',
+            ),
             relay_state: this.parsedLogoutRequest?.relay_state || '',
             status_code: this.logoutStatusCode,
             sign: this.signLogoutResponse ? 'true' : 'false',
@@ -133,6 +147,7 @@ export class Component implements OnInit {
             sp_entity_id: spEntityId,
             nameid_value: this.nameidValue,
             nameid_format: this.nameidFormat,
+            binding: this.idpBinding,
             sign: this.signLogoutRequest ? 'true' : 'false',
             session_indexes: JSON.stringify(sessionIndexes),
         };
@@ -150,6 +165,31 @@ export class Component implements OnInit {
         }
         this.loading = false;
         await this.service.render();
+    }
+
+    public async sendIdpLogoutRequest() {
+        if (!this.selectedSpId || !this.nameidValue) {
+            await this.service.modal.error('SP와 NameID를 확인해 주세요.');
+            return;
+        }
+        const sp = this.spList.find((item: any) => item.id === this.selectedSpId);
+        const spEntityId = sp?.entity_id || '';
+        const sessionIndexes = this.activeSessions
+            .filter((item: any) => item.sp_entity_id === spEntityId && item.session_index)
+            .map((item: any) => item.session_index);
+        const query = new URLSearchParams({
+            sp_entity_id: spEntityId,
+            nameid_value: this.nameidValue,
+            nameid_format: this.nameidFormat,
+            binding: this.idpBinding,
+            sign: this.signLogoutRequest ? 'true' : 'false',
+            session_indexes: JSON.stringify(sessionIndexes),
+            relay_state: '/saml/logoutcheck',
+            deliver: 'true',
+        });
+        this.loading = true;
+        await this.service.render();
+        window.location.assign(`/api/saml/slo-initiate?${query.toString()}`);
     }
 
     public async invalidateSession(sessionId: string) {
@@ -174,12 +214,28 @@ export class Component implements OnInit {
         await this.loadData();
     }
 
-    public getSpSloUrl(entityId: string): string {
+    public async setWorkspaceTab(name: string) {
+        this.workspaceTab = name;
+        await this.service.render();
+    }
+
+    public workspaceTabClass(name: string) {
+        return this.workspaceTab === name
+            ? 'bg-white text-orange-700 shadow-sm'
+            : 'text-slate-600 hover:text-slate-900';
+    }
+
+    public getSpSloUrl(entityId: string, binding: string = ''): string {
         const sp = this.spList.find((s: any) => s.entity_id === entityId);
         if (!sp) return '';
         const sloUrls = sp.slo_url || [];
+        const bindingUri = String(binding).toUpperCase() === 'REDIRECT'
+            ? 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
+            : 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST';
+        const matched = sloUrls.find((ep: any) => ep.binding === bindingUri);
+        if (matched) return matched.response_location || matched.location || '';
         for (const ep of sloUrls) {
-            if (ep.location) return ep.location;
+            if (ep.response_location || ep.location) return ep.response_location || ep.location;
         }
         return '';
     }

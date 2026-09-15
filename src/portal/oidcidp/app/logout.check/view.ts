@@ -10,6 +10,7 @@ export class Component implements OnInit {
     public history: any[] = [];
     public provider: any = null;
     public result: any = null;
+    public showSecrets: boolean = false;
     public form: any = this.defaultForm();
 
     constructor(public service: Service) { }
@@ -25,7 +26,9 @@ export class Component implements OnInit {
             user_id: '',
             post_logout_redirect_uri: '',
             id_token_hint: '',
+            logout_hint: '',
             state: 'logout_state',
+            ui_locales: 'ko en',
             local_session_clear: true,
         };
     }
@@ -103,7 +106,9 @@ export class Component implements OnInit {
                 user_id: this.form.user_id,
                 post_logout_redirect_uri: this.form.post_logout_redirect_uri,
                 id_token_hint: this.form.id_token_hint,
+                logout_hint: this.form.logout_hint,
                 state: this.form.state,
+                ui_locales: this.form.ui_locales,
                 local_session_clear: this.form.local_session_clear ? 'true' : 'false',
             });
             if (res.code === 200) {
@@ -137,5 +142,26 @@ export class Component implements OnInit {
         try {
             await navigator.clipboard.writeText(String(text || ''));
         } catch (e) { }
+    }
+
+    public openEndSession() {
+        const url = String(this.result?.end_session_url || '');
+        if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    public maskedLogoutUrl(value: string) {
+        if (this.showSecrets) return value;
+        try {
+            const url = new URL(value);
+            if (url.searchParams.has('id_token_hint')) url.searchParams.set('id_token_hint', '••••••••••••');
+            return url.toString();
+        } catch (e) {
+            return '민감한 값 숨김';
+        }
+    }
+
+    public async toggleSecrets() {
+        this.showSecrets = !this.showSecrets;
+        await this.service.render();
     }
 }

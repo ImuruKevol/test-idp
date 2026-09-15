@@ -1,19 +1,19 @@
-<div class='space-y-6'>
+<div class='space-y-8'>
 	<div *ngIf='mode === "list"'>
 		<div class='flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between'>
 			<div>
-				<p class='text-xs font-semibold uppercase tracking-[0.24em] text-sky-700'>OIDC RP Registry</p>
-				<h2 class='mt-2 text-lg font-semibold text-zinc-950'>등록된 RP와 발급된 client credential 관리</h2>
-				<p class='mt-2 text-[13px] leading-6 text-zinc-600'>redirect URI, grant 정책, 공개 RP 여부, JWKS 연결 상태를 한 화면에서 확인하고 테스트용 RP를 빠르게 추가하거나 수정합니다.</p>
+				<p class='text-xs font-bold uppercase tracking-[0.16em] text-sky-700'>Relying parties</p>
+				<h2 class='mt-1.5 text-xl font-bold tracking-tight text-zinc-950'>RP 관리</h2>
+				<p class='mt-1.5 text-sm leading-6 text-zinc-600'>Redirect URI, Grant Type, Client 인증 방식과 표준 상태를 한눈에 확인합니다.</p>
 			</div>
-			<button class='inline-flex items-center justify-center rounded-xl bg-sky-600 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-sky-700' (click)='openCreate()'>Register RP</button>
+			<button class='inline-flex h-10 items-center justify-center rounded-xl bg-sky-600 px-4 text-sm font-bold text-white transition hover:bg-sky-700' (click)='openCreate()'>RP 등록</button>
 		</div>
 
 		<div class='grid gap-3 md:grid-cols-3'>
 			<div class='rounded-2xl border border-sky-100 bg-sky-50 p-4'>
-				<p class='text-xs font-semibold uppercase tracking-wide text-sky-700'>Registered RPs</p>
+				<p class='text-xs font-semibold text-sky-700'>등록된 RP</p>
 				<p class='mt-2 text-2xl font-semibold text-zinc-950'>{{ items.length }}</p>
-				<p class='mt-1 text-xs text-sky-700'>브라우저에서 바로 authorize / logout 검증에 사용할 수 있습니다.</p>
+				<p class='mt-1 text-xs text-sky-700'>로그인과 로그아웃 확인에 사용합니다.</p>
 			</div>
 			<div class='rounded-2xl border border-zinc-200 bg-white p-4'>
 				<p class='text-xs font-semibold uppercase tracking-wide text-zinc-500'>Issuer</p>
@@ -31,7 +31,7 @@
 
 		<div *ngIf='!loading && items.length === 0' class='rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-6 py-16 text-center'>
 			<p class='text-[13px] font-medium text-zinc-600'>아직 등록된 RP가 없습니다.</p>
-			<p class='mt-2 text-xs text-zinc-400'>상단의 Register RP 버튼으로 첫 테스트 클라이언트를 추가하세요.</p>
+			<p class='mt-2 text-xs text-zinc-400'>상단의 RP 등록 버튼으로 첫 테스트 client를 추가하세요.</p>
 		</div>
 
 		<div *ngIf='!loading && items.length > 0' class='grid gap-4 xl:grid-cols-2'>
@@ -45,6 +45,8 @@
 				</div>
 
 				<div class='mt-4 flex flex-wrap gap-2'>
+					<span class='rounded-full px-2.5 py-1 text-xs font-semibold' [class]='item.standards_status === "standard" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"'>{{ item.standards_status === 'standard' ? '표준' : '호환 시험' }}</span>
+					<span *ngIf='!item.active' class='rounded-full bg-zinc-200 px-2.5 py-1 text-xs text-zinc-600'>비활성</span>
 					<span class='rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600'>{{ item.token_endpoint_auth_method }}</span>
 					<span class='rounded-full bg-sky-50 px-2.5 py-1 text-xs text-sky-700'>redirect {{ item.redirect_uris?.length || 0 }}</span>
 					<span class='rounded-full bg-violet-50 px-2.5 py-1 text-xs text-violet-700'>scope {{ item.scope_policy?.length || 0 }}</span>
@@ -65,9 +67,9 @@
 					</div>
 				</div>
 
-				<div class='mt-5 flex items-center justify-between gap-3'>
+				<div class='mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
 					<button class='rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(item.client_id, "client_id")'>client_id 복사</button>
-					<div class='flex items-center gap-2'>
+					<div class='flex flex-wrap items-center gap-2'>
 						<span *ngIf='copied === "client_id"' class='text-[11px] text-sky-600'>복사됨</span>
 						<button *ngIf='isAdmin() && item.expires' class='rounded-lg px-3 py-1.5 text-xs font-medium text-sky-600 ring-1 ring-sky-200 transition hover:bg-sky-50' (click)='extendClient(item)'>+24h</button>
 						<button *ngIf='isAdmin() && item.expires' class='rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 ring-1 ring-violet-200 transition hover:bg-violet-50' (click)='setUnlimited(item)'>무기한</button>
@@ -80,7 +82,7 @@
 		</div>
 	</div>
 
-	<div *ngIf='mode === "create" || mode === "edit"' class='space-y-5'>
+	<div *ngIf='mode === "create" || mode === "edit"' class='space-y-6'>
 		<div class='flex items-center gap-3'>
 			<button class='rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700' (click)='cancelForm()'>
 				<svg class='size-4' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' d='M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18' /></svg>
@@ -91,7 +93,7 @@
 			</div>
 		</div>
 
-		<div class='grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_22rem]'>
+		<div class='grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_22rem]'>
 			<div class='space-y-5 rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
 				<div class='grid gap-4 md:grid-cols-2'>
 					<div class='md:col-span-2'>
@@ -109,6 +111,10 @@
 							<input type='checkbox' [(ngModel)]='form.public_client' (ngModelChange)='onPublicClientChange()' />
 							Public client
 						</label>
+					</div>
+					<div class='flex items-center gap-4 md:col-span-2'>
+						<label class='inline-flex items-center gap-2 text-[13px] text-zinc-700'><input type='checkbox' [(ngModel)]='form.active' (ngModelChange)='service.render()' />활성</label>
+						<label *ngIf='form.public_client' class='inline-flex items-center gap-2 text-[13px] text-amber-700'><input type='checkbox' [(ngModel)]='form.allow_plain_pkce' (ngModelChange)='service.render()' />PKCE plain 호환 시험 허용</label>
 					</div>
 				</div>
 
@@ -157,6 +163,15 @@
 					</div>
 				</div>
 
+				<div class='rounded-xl border border-sky-100 bg-sky-50 p-4'>
+					<div class='flex flex-wrap items-center gap-2'>
+						<label class='text-sm font-semibold text-zinc-900'>실행 설정 이름</label>
+						<span class='rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200'>선택</span>
+					</div>
+					<input class='mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100' [(ngModel)]='form.reviewops_profile' (ngModelChange)='service.render()' placeholder='예: keycloud-login-a' />
+					<p class='mt-1.5 text-xs leading-5 text-zinc-600'>특별한 응답을 확인할 때만 입력합니다. Provider 정보에서 저장한 이름과 같아야 하며, 일반 로그인에는 비워둡니다.</p>
+				</div>
+
 				<div>
 					<label class='text-[13px] font-medium text-zinc-700'>운영 메모</label>
 					<textarea class='mt-1 min-h-[96px] w-full rounded-xl border border-zinc-300 px-3 py-2 text-[13px] text-zinc-900 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400' [(ngModel)]='form.extra_notes' (ngModelChange)='service.render()' placeholder='QA 테넌트용 RP, PKCE 필수, 로그아웃 검증 대상 등'></textarea>
@@ -188,7 +203,7 @@
 		</div>
 	</div>
 
-	<div *ngIf='mode === "result" && registerResult' class='space-y-5'>
+	<div *ngIf='mode === "result" && registerResult' class='space-y-6'>
 		<div class='flex items-center gap-3'>
 			<button class='rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700' (click)='showList()'>
 				<svg class='size-4' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' d='M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18' /></svg>
@@ -208,6 +223,7 @@
 			<div class='rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm'>
 				<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Client Secret</p>
 				<p class='mt-2 break-all font-mono text-[13px] text-zinc-900'>{{ registerResult.client_secret || '(public client)' }}</p>
+				<p *ngIf='registerResult.client_secret' class='mt-2 text-xs text-amber-700'>이 값은 지금만 표시됩니다. 안전한 곳에 보관하세요.</p>
 				<button *ngIf='registerResult.client_secret' class='mt-3 rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(registerResult.client_secret, "result-client-secret")'>복사</button>
 			</div>
 		</div>
@@ -252,46 +268,47 @@
 		</div>
 	</div>
 
-	<div *ngIf='mode === "detail" && selectedItem' class='space-y-5'>
-		<div class='flex items-center justify-between gap-3'>
-			<div class='flex items-center gap-3'>
-				<button class='rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700' (click)='showList()'>
+	<div *ngIf='mode === "detail" && selectedItem' class='space-y-6'>
+		<div class='flex items-center gap-3'>
+			<button class='rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700' (click)='showList()' aria-label='RP 목록으로'>
 					<svg class='size-4' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' d='M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18' /></svg>
-				</button>
-				<div>
-					<h2 class='text-lg font-semibold text-zinc-950'>{{ selectedItem.client_name }}</h2>
-					<p class='break-all font-mono text-xs text-zinc-500'>{{ selectedItem.client_id }}</p>
-				</div>
-			</div>
-			<div class='flex items-center gap-2'>
-				<button class='rounded-xl border border-emerald-200 px-4 py-2 text-[13px] font-semibold text-emerald-700 transition hover:bg-emerald-50' (click)='openEdit(selectedItem)'>수정</button>
-				<button *ngIf='selectedItem.can_delete' class='rounded-xl bg-rose-500 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-rose-600' (click)='deleteClient(selectedItem)'>삭제</button>
+			</button>
+			<div>
+				<p class='text-xs font-semibold text-slate-500'>RP 관리 / 상세</p>
+				<h2 class='mt-0.5 text-lg font-bold text-slate-950'>{{ selectedItem.client_name }}</h2>
 			</div>
 		</div>
 
-		<div class='grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_22rem]'>
-			<div class='space-y-4 rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
-				<div class='grid gap-4 md:grid-cols-2'>
+		<div class='grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)]'>
+			<div class='order-2 space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm xl:order-2'>
+				<nav class='-mx-1 flex gap-1 overflow-x-auto border-b border-slate-200 px-1' aria-label='RP 상세 메뉴'>
+					<button type='button' class='shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition' [class]='detailTabClass("overview")' (click)='setDetailTab("overview")'>요약</button>
+					<button type='button' class='shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition' [class]='detailTabClass("endpoints")' (click)='setDetailTab("endpoints")'>Callback</button>
+					<button type='button' class='shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition' [class]='detailTabClass("claims")' (click)='setDetailTab("claims")'>Claim·메모</button>
+				</nav>
+				<div *ngIf='detailTab === "overview"' class='grid gap-4 md:grid-cols-2'>
 					<div>
-						<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Auth Method</p>
-						<p class='mt-2 text-[13px] text-zinc-900'>{{ selectedItem.token_endpoint_auth_method }}</p>
+						<p class='text-xs font-semibold uppercase tracking-wide text-slate-400'>Token endpoint 인증</p>
+						<p class='mt-2 text-sm font-medium text-slate-900'>{{ selectedItem.token_endpoint_auth_method }}</p>
 					</div>
 					<div>
-						<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Client Type</p>
-						<p class='mt-2 text-[13px] text-zinc-900'>{{ selectedItem.public_client ? 'Public' : 'Confidential' }}</p>
+						<p class='text-xs font-semibold uppercase tracking-wide text-slate-400'>Client 유형</p>
+						<p class='mt-2 text-sm font-medium text-slate-900'>{{ selectedItem.public_client ? 'Public' : 'Confidential' }}</p>
 					</div>
 				</div>
-				<div class='grid gap-4 md:grid-cols-2'>
-					<div>
-						<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Client Secret</p>
-						<p class='mt-2 break-all font-mono text-[13px] text-zinc-900'>{{ selectedItem.client_secret || '(public client)' }}</p>
-					</div>
-					<div class='flex items-end'>
-						<button *ngIf='selectedItem.client_secret' class='rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200 transition hover:bg-zinc-50' (click)='copyText(selectedItem.client_secret, "detail-client-secret")'>client_secret 복사</button>
-					</div>
+				<div *ngIf='detailTab === "overview"' class='rounded-xl border p-4' [class]='selectedItem.standards_status === "standard" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"'>
+					<p class='text-sm font-semibold'>{{ selectedItem.standards_status === 'standard' ? '표준 설정' : '호환 시험 설정' }}</p>
+					<ul *ngIf='selectedItem.standards_warnings?.length' class='mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800'><li *ngFor='let warning of selectedItem.standards_warnings'>{{ warning }}</li></ul>
 				</div>
-				<div class='rounded-2xl border p-4' [class]='selectedItem.expires && (isExpired(selectedItem.expires) || isExpiringSoon(selectedItem.expires)) ? "border-red-200 bg-red-50" : "border-sky-200 bg-sky-50"'>
-					<p class='text-xs font-semibold uppercase tracking-wide' [class]='selectedItem.expires && (isExpired(selectedItem.expires) || isExpiringSoon(selectedItem.expires)) ? "text-red-500" : "text-sky-700"'>Validity</p>
+				<div *ngIf='detailTab === "overview"' class='grid gap-4 md:grid-cols-2'>
+					<div>
+						<p class='text-xs font-semibold uppercase tracking-wide text-slate-400'>Client Secret</p>
+						<p class='mt-2 break-all font-mono text-sm text-slate-900'>{{ selectedItem.client_secret_masked || '(public client)' }}</p>
+					</div>
+					<div class='flex items-end text-sm text-slate-500'>client_secret은 등록 직후에만 표시됩니다.</div>
+				</div>
+				<div *ngIf='detailTab === "overview"' class='rounded-xl border p-4' [class]='selectedItem.expires && (isExpired(selectedItem.expires) || isExpiringSoon(selectedItem.expires)) ? "border-red-200 bg-red-50" : "border-sky-200 bg-sky-50"'>
+					<p class='text-xs font-semibold uppercase tracking-wide' [class]='selectedItem.expires && (isExpired(selectedItem.expires) || isExpiringSoon(selectedItem.expires)) ? "text-red-500" : "text-sky-700"'>유효 시간</p>
 					<p class='mt-2 text-[13px] font-medium text-zinc-900'>{{ getTimeRemaining(selectedItem.expires || null) }}</p>
 					<p class='mt-1 text-xs text-zinc-500'>{{ selectedItem.expires ? (selectedItem.expires | date:"yyyy-MM-dd HH:mm") : "무기한 보관" }}</p>
 					<div *ngIf='isAdmin() && selectedItem.expires' class='mt-3 flex flex-wrap gap-2'>
@@ -299,43 +316,52 @@
 						<button class='rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-700' (click)='setUnlimited(selectedItem)'>무기한 전환</button>
 					</div>
 				</div>
-				<div>
+				<div *ngIf='detailTab === "endpoints"' class='rounded-xl border border-slate-200 p-4'>
 					<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Redirect URIs</p>
 					<div class='mt-2 space-y-2'>
 						<p *ngFor='let uri of selectedItem.redirect_uris' class='break-all text-[13px] text-zinc-700'>{{ uri }}</p>
 					</div>
 				</div>
-				<div>
+				<div *ngIf='detailTab === "endpoints"' class='rounded-xl border border-slate-200 p-4'>
 					<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Logout Redirect URIs</p>
 					<div class='mt-2 space-y-2'>
 						<p *ngFor='let uri of selectedItem.post_logout_redirect_uris' class='break-all text-[13px] text-zinc-700'>{{ uri }}</p>
 						<p *ngIf='!selectedItem.post_logout_redirect_uris?.length' class='text-[13px] text-zinc-400'>등록되지 않음</p>
 					</div>
 				</div>
-				<div>
+				<div *ngIf='detailTab === "claims"' class='rounded-xl border border-slate-200 p-4'>
 					<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>Claims Policy</p>
 					<div class='mt-2 flex flex-wrap gap-2'>
 						<span *ngFor='let value of selectedItem.claims_policy' class='rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600'>{{ value }}</span>
 						<span *ngIf='!selectedItem.claims_policy?.length' class='text-[13px] text-zinc-400'>별도 제한 없음</span>
 					</div>
 				</div>
-				<div *ngIf='selectedItem.extra?.notes'>
+				<div *ngIf='detailTab === "claims" && selectedItem.extra?.notes' class='rounded-xl border border-slate-200 p-4'>
 					<p class='text-xs font-semibold uppercase tracking-wide text-zinc-400'>운영 메모</p>
 					<p class='mt-2 whitespace-pre-wrap text-[13px] leading-6 text-zinc-700'>{{ selectedItem.extra?.notes }}</p>
 				</div>
 			</div>
 
-			<aside class='space-y-4 rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm'>
+			<aside class='order-1 space-y-5 rounded-2xl border border-slate-200 bg-slate-50 p-6 xl:sticky xl:top-[4.75rem] xl:self-start'>
 				<div>
-					<p class='text-[15px] font-semibold text-zinc-950'>활용 탭</p>
-					<ul class='mt-3 space-y-2 text-[13px] text-zinc-600'>
-						<li>Publish 탭에서 discovery / jwks 노출값 확인</li>
-						<li>Authorize Check 탭에서 client_id를 선택해 code / token 흐름 점검</li>
-						<li>Logout Check 탭에서 post_logout_redirect_uri 검증</li>
-					</ul>
+					<p class='text-xs font-bold uppercase tracking-wide text-slate-400'>선택한 RP</p>
+					<h3 class='mt-2 break-words text-base font-bold text-slate-950'>{{ selectedItem.client_name }}</h3>
+					<p class='mt-1 break-all font-mono text-xs leading-5 text-slate-500'>{{ selectedItem.client_id }}</p>
 				</div>
-				<button class='w-full rounded-xl border border-zinc-300 px-4 py-2 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-50' (click)='copyText(selectedItem.client_id, "detail-client-id")'>client_id 복사</button>
-				<p *ngIf='copied === "detail-client-secret"' class='text-center text-[11px] text-sky-600'>client_secret 복사됨</p>
+				<div class='flex flex-wrap gap-2'>
+					<span class='rounded-full px-2.5 py-1 text-xs font-semibold' [class]='selectedItem.standards_status === "standard" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"'>{{ selectedItem.standards_status === 'standard' ? '표준' : '호환 시험' }}</span>
+					<span class='rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200'>{{ selectedItem.public_client ? 'Public' : 'Confidential' }}</span>
+					<span class='rounded-full px-2.5 py-1 text-xs font-semibold' [class]='selectedItem.active ? "bg-sky-100 text-sky-800" : "bg-slate-200 text-slate-600"'>{{ selectedItem.active ? '활성' : '비활성' }}</span>
+				</div>
+				<div class='rounded-xl border border-slate-200 bg-white p-3'>
+					<p class='text-xs font-semibold text-slate-500'>유효 시간</p>
+					<p class='mt-1 text-sm font-semibold text-slate-900'>{{ getTimeRemaining(selectedItem.expires || null) }}</p>
+				</div>
+				<button class='w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50' (click)='copyText(selectedItem.client_id, "detail-client-id")'>client_id 복사</button>
+				<div class='grid grid-cols-2 gap-2'>
+					<button class='rounded-xl bg-sky-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-sky-700' (click)='openEdit(selectedItem)'>수정</button>
+					<button *ngIf='selectedItem.can_delete' class='rounded-xl border border-rose-200 bg-white px-3 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50' (click)='deleteClient(selectedItem)'>삭제</button>
+				</div>
 			</aside>
 		</div>
 	</div>

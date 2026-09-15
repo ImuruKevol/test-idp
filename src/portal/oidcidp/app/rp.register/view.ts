@@ -10,6 +10,7 @@ export class Component implements OnInit {
     public selectedItem: any = null;
     public registerResult: any = null;
     public copied: string = '';
+    public detailTab: string = 'overview';
     public options: any = {
         auth_methods: [],
         grant_types: [],
@@ -39,6 +40,9 @@ export class Component implements OnInit {
             jwks_uri: '',
             jwks_text: '',
             extra_notes: '',
+            active: true,
+            allow_plain_pkce: false,
+            reviewops_profile: '',
         };
     }
 
@@ -85,6 +89,9 @@ export class Component implements OnInit {
             jwks_uri: item.extra?.jwks_uri || '',
             jwks_text: this.stringify(item.jwks),
             extra_notes: item.extra?.notes || '',
+            active: item.active !== false,
+            allow_plain_pkce: item.extra?.allow_plain_pkce === true,
+            reviewops_profile: item.extra?.reviewops_profile || '',
         };
     }
 
@@ -114,8 +121,20 @@ export class Component implements OnInit {
 
     public async showDetail(item: any) {
         this.selectedItem = item;
+        this.detailTab = 'overview';
         this.mode = 'detail';
         await this.service.render();
+    }
+
+    public async setDetailTab(name: string) {
+        this.detailTab = name;
+        await this.service.render();
+    }
+
+    public detailTabClass(name: string) {
+        return this.detailTab === name
+            ? 'border-sky-600 text-sky-700'
+            : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800';
     }
 
     public async toggleListValue(key: string, value: string) {
@@ -184,7 +203,12 @@ export class Component implements OnInit {
             public_client: this.form.public_client ? 'true' : 'false',
             jwks_uri: String(this.form.jwks_uri || '').trim(),
             jwks: String(this.form.jwks_text || '').trim(),
-            extra: JSON.stringify({ notes: String(this.form.extra_notes || '').trim() }),
+            extra: JSON.stringify({
+                notes: String(this.form.extra_notes || '').trim(),
+                reviewops_profile: String(this.form.reviewops_profile || '').trim(),
+            }),
+            active: this.form.active ? 'true' : 'false',
+            allow_plain_pkce: this.form.allow_plain_pkce ? 'true' : 'false',
         };
     }
 
@@ -245,7 +269,6 @@ export class Component implements OnInit {
             return;
         }
 
-        const previousSecret = this.selectedItem.client_secret || '';
         this.submitting = true;
         await this.service.render();
 
@@ -260,11 +283,7 @@ export class Component implements OnInit {
                 this.selectedItem = this.items.find((item) => item.id === updated.id) || updated;
                 this.mode = 'detail';
 
-                if (!previousSecret && this.selectedItem.client_secret) {
-                    await this.service.modal.success('RP 정보를 수정했고 새 client_secret이 발급되었습니다. 상세 화면에서 복사할 수 있습니다.');
-                } else {
-                    await this.service.modal.success('RP 정보를 수정했습니다.');
-                }
+                await this.service.modal.success('RP 정보를 수정했습니다. client_secret은 등록 직후에만 표시됩니다.');
             } else {
                 await this.service.modal.error(res.data?.message || 'RP 수정에 실패했습니다.');
             }

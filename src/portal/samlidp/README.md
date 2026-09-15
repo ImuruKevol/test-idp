@@ -5,7 +5,14 @@ SAML IdP 기능을 담당하는 패키지.
 - SP metadata registry
 - IdP metadata publication
 - SSO processing
-- SLO processing
+- HTTP-POST / HTTP-Redirect SLO processing
+
+## SLO
+
+- SP 시작 SLO: LogoutRequest의 Issuer, Destination, 시간, NameID, SessionIndex와 Binding별 signature를 검증하고 같은 Binding의 `SingleLogoutService`로 LogoutResponse를 반환한다.
+- IdP 시작 SLO: 등록된 Binding의 endpoint로 LogoutRequest를 전송하고 돌아온 LogoutResponse의 signature, Issuer, InResponseTo, Destination, RelayState, Status를 검증한 뒤 연결된 세션을 종료한다.
+- HTTP-Redirect는 XML signature를 제거한 뒤 DEFLATE하고 URL query signature를 적용한다.
+- 서명 누락, SessionIndex 누락, 등록 Binding 불일치는 호환 시험으로 지원하며 결과 화면에 표시한다.
 - Raw XML debug
 
 ## SSO AuthnContextClassRef

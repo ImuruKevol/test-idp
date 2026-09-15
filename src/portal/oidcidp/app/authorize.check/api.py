@@ -14,7 +14,7 @@ def bootstrap():
     users = [_sanitize_user(user) for user in core.user.list_active()]
     presets = core.attribute_preset.list(protocol="oidc")
     wiz.response.status(200, data={
-        "clients": struct.registry.list(),
+        "clients": [struct.registry.public_view(item) for item in struct.registry.list()],
         "users": users,
         "presets": presets,
         "provider": struct.provider.info(),

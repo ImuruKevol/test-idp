@@ -29,8 +29,8 @@ def user_list():
 
 def active_sessions():
     sp_entity_id = wiz.request.query("sp_entity_id", "")
-    rows = struct.process.list_active_sessions(sp_entity_id=sp_entity_id)
-    wiz.response.status(200, data=rows)
+    summary = struct.process.active_session_summary(sp_entity_id=sp_entity_id)
+    wiz.response.status(200, data=summary)
 
 
 def parse_logout_request():
@@ -38,7 +38,19 @@ def parse_logout_request():
     relay_state = wiz.request.query("RelayState", "")
     binding = wiz.request.query("binding", "POST")
     try:
-        result = struct.process.parse_logout_request(saml_request, relay_state=relay_state, binding=binding)
+        raw_query = ""
+        try:
+            raw_query = wiz.request._flask.request.query_string.decode("ascii")
+        except Exception:
+            pass
+        result = struct.process.parse_logout_request(
+            saml_request,
+            relay_state=relay_state,
+            binding=binding,
+            raw_query=raw_query,
+            expected_destination=wiz.request.query("expected_destination", ""),
+            allow_unsigned=str(wiz.request.query("allow_unsigned", "false")).lower() == "true",
+        )
     except Exception as e:
         wiz.response.status(400, message=str(e))
     wiz.response.status(200, data=result)
@@ -78,6 +90,7 @@ def build_logout_request():
     params["nameid_format"] = wiz.request.query("nameid_format", "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress")
     params["destination"] = wiz.request.query("destination", "")
     params["sign"] = wiz.request.query("sign", "true") == "true"
+    params["binding"] = wiz.request.query("binding", "POST")
 
     session_indexes_str = wiz.request.query("session_indexes", "")
     if session_indexes_str:

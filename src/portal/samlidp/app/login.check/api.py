@@ -74,6 +74,13 @@ def build_response():
     params["sign_assertion"] = wiz.request.query("sign_assertion", "true") == "true"
     params["session_index"] = wiz.request.query("session_index", "")
     params["authn_context_class_ref"] = wiz.request.query("authn_context_class_ref", "")
+    params["encrypt_assertion"] = wiz.request.query("encrypt_assertion", "false") == "true"
+    params["content_encryption_algorithm"] = wiz.request.query("content_encryption_algorithm", "aes256-gcm")
+    params["key_transport_algorithm"] = wiz.request.query("key_transport_algorithm", "rsa-oaep-sha256")
+    params["response_variant"] = wiz.request.query("response_variant", "standard")
+    params["time_offset_seconds"] = int(wiz.request.query("time_offset_seconds", 0))
+    params["assertion_ttl_seconds"] = int(wiz.request.query("assertion_ttl_seconds", 300))
+    params["authenticating_authorities"] = wiz.request.query("authenticating_authorities", "[]")
 
     try:
         result = struct.process.build_response(params)

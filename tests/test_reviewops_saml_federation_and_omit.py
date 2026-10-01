@@ -67,6 +67,9 @@ class MemoryJsonFs:
     def delete(self, path):
         self.values.pop(path, None)
 
+    def files(self, filepath=""):
+        return list(self.values)
+
 
 class DebugFs:
     def __init__(self):
@@ -109,9 +112,17 @@ def metadata_fixture():
         request=SimpleNamespace(query=lambda key, default="": default),
     )
     metadata = module.Metadata(SimpleNamespace())
+    key_pem, cert_pem = keypair()
+    cert_body = "".join(
+        line for line in cert_pem.splitlines() if not line.startswith("-----")
+    )
     metadata._base_url = lambda: "https://debug-idp.nanoha.kr"
     metadata._ensure_keypair = lambda: None
-    metadata.get_cert_body = lambda: "REVIEWOPS_TEST_CERTIFICATE"
+    metadata.get_key_pem = lambda: key_pem
+    metadata.get_cert_pem = lambda: cert_pem
+    metadata.get_cert_body = lambda: cert_body
+    metadata.get_encryption_cert_pem = lambda: cert_pem
+    metadata.get_encryption_cert_body = lambda: cert_body
     metadata._cert_fs = lambda: MemoryJsonFs()
     return module, metadata
 
@@ -130,13 +141,38 @@ def test_profile_federation_metadata_has_exactly_one_matching_idp_entity():
     assert len(entities[0].findall(f"{{{NS_MD}}}IDPSSODescriptor")) == 1
 
 
-def test_federation_metadata_requires_profile_and_single_metadata_is_unchanged():
+def test_federation_metadata_without_profile_publishes_base_entity_and_single_metadata_is_unchanged():
     _, metadata = metadata_fixture()
-    with pytest.raises(ValueError, match="reviewops_profile"):
-        metadata.generate_federation_xml("")
+    aggregate = etree.fromstring(metadata.generate_federation_xml("").encode())
+    entities = aggregate.findall(f"{{{NS_MD}}}EntityDescriptor")
+    assert len(entities) == 1
+    assert entities[0].get("entityID") == "https://debug-idp.nanoha.kr/api/saml/metadata"
+    assert aggregate.get("validUntil")
+    assert aggregate.get("cacheDuration") == "PT15M"
     single = etree.fromstring(metadata.generate_xml().encode())
     assert single.tag == f"{{{NS_MD}}}EntityDescriptor"
     assert single.get("entityID") == "https://debug-idp.nanoha.kr/api/saml/metadata"
+
+
+def test_federation_feed_aggregates_base_and_saved_profile_entities():
+    _, metadata = metadata_fixture()
+    fs = MemoryJsonFs()
+    metadata._cert_fs = lambda: fs
+    metadata.configure_response_defaults("alpha", True, True)
+    metadata.configure_response_defaults("beta", True, True)
+
+    root = etree.fromstring(metadata.generate_federation_xml("").encode())
+    entity_ids = [
+        item.get("entityID")
+        for item in root.findall(f"{{{NS_MD}}}EntityDescriptor")
+    ]
+    assert entity_ids == [
+        "https://debug-idp.nanoha.kr/api/saml/metadata",
+        "https://debug-idp.nanoha.kr/reviewops/saml/alpha",
+        "https://debug-idp.nanoha.kr/reviewops/saml/beta",
+    ]
+    assert root.get("validUntil")
+    assert root.get("cacheDuration") == "PT15M"
 
 
 def test_omit_attributes_is_profile_isolated_bounded_and_clearable():

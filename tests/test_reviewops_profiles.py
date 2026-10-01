@@ -121,6 +121,9 @@ def _saml_metadata(values=None):
     metadata = module.Metadata(SimpleNamespace())
     metadata._ensure_keypair = lambda: None
     metadata.get_cert_body = lambda: "REVIEWOPS_TEST_CERTIFICATE"
+    metadata.get_encryption_cert_body = lambda: "REVIEWOPS_TEST_ENCRYPTION_CERTIFICATE"
+    metadata._certificate_sha256 = lambda purpose="signing": f"{purpose}-fingerprint"
+    metadata._certificate_info = lambda purpose="signing": {"purpose": purpose}
     return module, metadata
 
 

@@ -365,18 +365,27 @@ def test_idp_metadata_is_signed_and_advertises_encryption():
     module = load("src/portal/samlidp/model/struct/metadata.py", "modern_saml_metadata")
     module.wiz = SimpleNamespace(request=SimpleNamespace(query=lambda key, default="": default))
     _, key_pem, cert_pem, cert_body = keypair()
+    _, encryption_key_pem, encryption_cert_pem, encryption_cert_body = keypair()
     metadata = module.Metadata(SimpleNamespace())
     metadata._base_url = lambda: "https://idp.example.test"
     metadata._ensure_keypair = lambda: None
     metadata.get_key_pem = lambda: key_pem
     metadata.get_cert_pem = lambda: cert_pem
     metadata.get_cert_body = lambda: cert_body
+    metadata.get_encryption_key_pem = lambda: encryption_key_pem
+    metadata.get_encryption_cert_pem = lambda: encryption_cert_pem
+    metadata.get_encryption_cert_body = lambda: encryption_cert_body
     xml = metadata.generate_xml()
     root = etree.fromstring(xml.encode())
 
     XMLVerifier().verify(root, x509_cert=cert_pem, id_attribute="ID")
     encryption = root.xpath(".//*[local-name()='KeyDescriptor' and @use='encryption']")
     assert len(encryption) == 1
+    signing_cert = root.xpath("string(.//*[local-name()='KeyDescriptor' and @use='signing']//*[local-name()='X509Certificate'])")
+    encryption_cert = root.xpath("string(.//*[local-name()='KeyDescriptor' and @use='encryption']//*[local-name()='X509Certificate'])")
+    assert signing_cert == cert_body
+    assert encryption_cert == encryption_cert_body
+    assert signing_cert != encryption_cert
     assert root.xpath("count(.//*[local-name()='Organization'])") == 1.0
 
 

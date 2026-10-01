@@ -319,11 +319,12 @@ class Provider:
             "scopes_supported": self.supported_scopes(),
             "claims_supported": self.supported_claims(),
             "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code"],
+            "response_modes_supported": ["query", "fragment", "form_post"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
             "token_endpoint_auth_methods_supported": self.struct.registry.auth_method_options(),
             "id_token_signing_alg_values_supported": list(OIDC_SIGNING_ALGORITHMS),
             "token_endpoint_auth_signing_alg_values_supported": ["HS256", "RS256", "PS256", "ES256"],
-            "code_challenge_methods_supported": ["S256", "plain"],
+            "code_challenge_methods_supported": ["S256"],
             "subject_types_supported": ["public"],
             "kid": kid,
             "metadata_root": "metadata/oidc",
@@ -343,6 +344,7 @@ class Provider:
             "jwks_uri": info["jwks_uri"],
             "end_session_endpoint": info["end_session_endpoint"],
             "response_types_supported": info["response_types_supported"],
+            "response_modes_supported": info["response_modes_supported"],
             "grant_types_supported": info["grant_types_supported"],
             "token_endpoint_auth_methods_supported": info["token_endpoint_auth_methods_supported"],
             "scopes_supported": info["scopes_supported"],
@@ -489,7 +491,7 @@ class Provider:
                 raise ValueError("JWT signature 검증에 실패했습니다.")
 
         now = int(time.time())
-        if not allow_expired and payload.get("exp") is not None and int(payload["exp"]) < now:
+        if not allow_expired and payload.get("exp") is not None and int(payload["exp"]) <= now:
             raise ValueError("JWT가 만료되었습니다.")
         if payload.get("nbf") is not None and int(payload["nbf"]) > now + 60:
             raise ValueError("JWT의 nbf가 아직 유효하지 않습니다.")
@@ -588,6 +590,33 @@ class Provider:
             "payload": payload,
         }
 
+    def issue_refresh_token(
+        self,
+        client_id,
+        subject,
+        scope="",
+        ttl_seconds=2592000,
+        parent_jti="",
+        reviewops_profile=None,
+    ):
+        now = int(time.time())
+        payload = {
+            "iss": self.issuer(reviewops_profile),
+            "aud": client_id,
+            "sub": subject,
+            "iat": now,
+            "exp": now + int(ttl_seconds),
+            "jti": f"rtk-{uuid.uuid4().hex}",
+            "scope": str(scope or "").strip(),
+            "token_use": "refresh_token",
+        }
+        if parent_jti:
+            payload["parent_jti"] = str(parent_jti)
+        return {
+            "token": self.sign_jwt(payload, headers={"typ": "refresh+jwt"}),
+            "payload": payload,
+        }
+
     def decode_without_verify(self, token):
         parts = str(token or "").split(".")
         if len(parts) < 2:
@@ -656,6 +685,9 @@ class Provider:
         token_ttl = int(value.get("token_ttl_seconds", 600) or 600)
         if token_ttl < 1 or token_ttl > 86400:
             raise ValueError("token_ttl_seconds는 1~86400 범위여야 합니다.")
+        refresh_token_ttl = int(value.get("refresh_token_ttl_seconds", 2592000) or 2592000)
+        if refresh_token_ttl < 300 or refresh_token_ttl > 7776000:
+            raise ValueError("refresh_token_ttl_seconds는 300~7776000 범위여야 합니다.")
         session_ttl = int(value.get("session_ttl_seconds", 28800) or 28800)
         if session_ttl < 1 or session_ttl > 604800:
             raise ValueError("session_ttl_seconds는 1~604800 범위여야 합니다.")
@@ -685,6 +717,7 @@ class Provider:
             "response_variant": response_variant,
             "time_offset_seconds": time_offset,
             "token_ttl_seconds": token_ttl,
+            "refresh_token_ttl_seconds": refresh_token_ttl,
             "session_ttl_seconds": session_ttl,
             "acr": str(value.get("acr", "") or "").strip()[:512],
             "amr": amr,

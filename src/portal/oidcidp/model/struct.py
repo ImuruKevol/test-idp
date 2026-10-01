@@ -45,6 +45,26 @@ class Struct:
                 database.execute_sql('ALTER TABLE "oidc_rp_client" ADD COLUMN "expires" DATETIME')
         except Exception:
             pass
+        try:
+            db = self.orm.use("oidc_token_log", module="oidcidp")
+            database = db.orm._meta.database
+            cursor = database.execute_sql("PRAGMA table_info('oidc_token_log')")
+            existing = [row[1] for row in cursor.fetchall()]
+            migrations = {
+                "refresh_token_jti": 'ALTER TABLE "oidc_token_log" ADD COLUMN "refresh_token_jti" VARCHAR(255) DEFAULT ""',
+                "refresh_token_parent_jti": 'ALTER TABLE "oidc_token_log" ADD COLUMN "refresh_token_parent_jti" VARCHAR(255) DEFAULT ""',
+                "refresh_token_expires": 'ALTER TABLE "oidc_token_log" ADD COLUMN "refresh_token_expires" DATETIME',
+                "refresh_token_consumed": 'ALTER TABLE "oidc_token_log" ADD COLUMN "refresh_token_consumed" DATETIME',
+            }
+            for column, statement in migrations.items():
+                if column not in existing:
+                    database.execute_sql(statement)
+            database.execute_sql(
+                'CREATE INDEX IF NOT EXISTS "oidc_token_log_refresh_token_jti" '
+                'ON "oidc_token_log" ("refresh_token_jti")'
+            )
+        except Exception:
+            pass
 
     def should_repair_storage(self, error):
         message = str(error or "").lower()

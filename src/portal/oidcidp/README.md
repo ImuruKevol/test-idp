@@ -7,7 +7,7 @@ OIDC Provider 운영 화면과 관련 모델을 담당하는 패키지.
 - authorize request / consent / token preview 시뮬레이션
 - RP-Initiated Logout / post_logout_redirect_uri 검증 및 세션 종료
 - OIDC debug history 저장
-- authorization code 저장, token 교환, userinfo 응답, debug raw 조회
+- authorization code 저장, token 교환, 회전형 refresh token, userinfo 응답, debug raw 조회
 
 ## Portal Apps
 
@@ -33,4 +33,6 @@ OIDC Provider 운영 화면과 관련 모델을 담당하는 패키지.
 
 `post_logout_redirect_uri`는 RP에 등록된 값과 정확히 일치할 때만 사용하며, `state`는 검증된 복귀 주소에만 전달한다. 만료된 `id_token_hint`도 현재 OP가 발급한 서명된 토큰이면 RP-Initiated Logout 용도로 검증한다.
 - `GET /api/oidc/userinfo`: Bearer access token 또는 세션 기준 claim JSON 반환
-- `POST /api/oidc/token`: authorization code + PKCE 검증 후 access token / id token 발급
+- `POST /api/oidc/token`: authorization code + PKCE 또는 refresh token grant 처리. `offline_access`는 명시적 consent가 필요하고 refresh token은 매 교환 시 회전하며 재사용이 탐지되면 하위 token 계열도 폐기한다.
+
+정상 Discovery는 실제 구현된 Authorization Code/Refresh Token과 PKCE S256만 광고한다. PKCE plain과 잘못된 issuer/signature/time 응답은 명시적인 호환 시험 설정에서만 사용할 수 있다.

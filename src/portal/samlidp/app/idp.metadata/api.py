@@ -30,6 +30,10 @@ def info():
     except Exception:
         profiles = []
     info["profiles"] = profiles
+    try:
+        info["federations"] = metadata.list_federations()
+    except Exception:
+        info["federations"] = []
     wiz.response.status(200, data=info)
 
 
@@ -45,6 +49,29 @@ def profile():
     try:
         result = struct.metadata.response_defaults(
             wiz.request.query("reviewops_profile", "")
+        )
+    except ValueError as error:
+        wiz.response.status(400, message=str(error))
+    wiz.response.status(200, data=result)
+
+
+def federation_create():
+    try:
+        result = struct.metadata.create_federation(
+            wiz.request.query("name", True),
+            count=wiz.request.query("count", 3),
+            include_base=str(wiz.request.query("include_base", "true")).lower() == "true",
+            preset=wiz.request.query("preset", "standard"),
+        )
+    except ValueError as error:
+        wiz.response.status(400, message=str(error))
+    wiz.response.status(200, data=result)
+
+
+def federation_delete():
+    try:
+        result = struct.metadata.delete_federation(
+            wiz.request.query("name", True)
         )
     except ValueError as error:
         wiz.response.status(400, message=str(error))

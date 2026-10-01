@@ -62,3 +62,6 @@
 | 2026-09-15 | 006 | OIDC end_session과 SAML SLO 표준 흐름 보강 | [상세](devlog/2026-09-15/006-end-session-and-slo-support.md) |
 | 2026-09-15 | 007 | 검증용 IdP 세션 만료 및 메모리 상한 보강 | [상세](devlog/2026-09-15/007-session-and-memory-safety.md) |
 | 2026-09-15 | 008 | ReviewOps 기능 개선 변경 커밋 정리 | [상세](devlog/2026-09-15/008-commit-reviewops-improvements.md) |
+| 2026-10-01 | 001 | OIDC·SAML 표준 전수 감사, refresh token 및 SAML Federation IdP 보강 | [상세](devlog/2026-10-01/001-standards-audit-and-saml-federation-idp.md) |
+| 2026-10-01 | 002 | Quick Federation과 SAML metadata signing/encryption credential 분리 보강 | [상세](devlog/2026-10-01/002-quick-federation-and-metadata-credentials.md) |
+| 2026-10-01 | 003 | SAML Publish 화면을 Metadata와 Quick Federation 중심으로 단순화 | [상세](devlog/2026-10-01/003-saml-publish-simplification.md) |

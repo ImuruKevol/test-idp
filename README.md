@@ -149,7 +149,9 @@ wiz service status myapp
 
 - SP metadata XML 업로드 또는 붙여넣기 등록
 - Entity ID, ACS, SLO, 인증서, RequestedAttribute 파싱
-- IdP metadata XML 배포
+- 서명·만료·캐시 정책이 포함된 IdP metadata XML 배포
+- 이름·개수·프리셋만으로 여러 IdP alias를 만들고 저장된 묶음별 URL을 발급하는 SAML Federation 구성
+- 별도 RSA signing/encryption keypair, 용도별 `KeyDescriptor`, AES-GCM + RSA-OAEP 수신 알고리즘 게시
 - AuthnRequest 파싱, RelayState 유지, SAMLResponse 생성
 - Redirect/POST 기반 SSO 및 SLO 처리
 - SAML Request/Response 원문 XML 저장 및 조회
@@ -160,7 +162,7 @@ wiz service status myapp
 - redirect URI, response type, grant type, scope, auth method 관리
 - Discovery document와 JWKS 공개
 - authorization code + PKCE 흐름 처리
-- token endpoint에서 access token / id token 발급
+- token endpoint에서 access token / id token 및 회전형 refresh token 발급
 - Bearer access token 기반 userinfo 응답
 - end session logout redirect 검증
 - authorize/token/userinfo/logout raw debug bundle 저장
@@ -172,7 +174,7 @@ wiz service status myapp
 | `/` | Overview, SAML/OIDC 진입, 임시 테스트 계정 관리 |
 | `/access` | admin 로그인 화면 |
 | `/saml/register` | SP metadata 등록 및 등록된 SP 목록 |
-| `/saml/publish` | IdP metadata, SSO/SLO endpoint, 인증서, XML 배포 |
+| `/saml/publish` | IdP metadata, 빠른 Federation 생성, SSO/SLO endpoint, 용도별 인증서, XML 배포 |
 | `/saml/logincheck` | SAML AuthnRequest 파싱과 SAMLResponse 발급 테스트 |
 | `/saml/logoutcheck` | SAML LogoutRequest/LogoutResponse 테스트 |
 | `/oidc/register` | RP client 등록 및 credential 관리 |
@@ -187,6 +189,8 @@ wiz service status myapp
 | 엔드포인트 | 용도 |
 | --- | --- |
 | `GET /api/saml/metadata` | IdP metadata XML |
+| `GET /api/saml/federation-metadata` | 전체 또는 `?federation=<name>` 묶음의 서명된 `EntitiesDescriptor` feed |
+| `GET /api/saml/federation-info` | Federation entity·만료·서명 정보 |
 | `GET/POST /api/saml/sso` | AuthnRequest 수신 및 SAMLResponse 발급 |
 | `GET/POST /api/saml/slo` | SAML Single Logout 처리 |
 | `GET /api/saml/sp-list` | 등록된 SP 목록 |
@@ -200,7 +204,7 @@ wiz service status myapp
 | `GET /.well-known/openid-configuration` | OIDC discovery document |
 | `GET /api/oidc/jwks` | 공개 JWKS |
 | `GET/POST /api/oidc/authorize` | authorize request 처리 |
-| `POST /api/oidc/token` | authorization code와 PKCE 검증 후 token 발급 |
+| `POST /api/oidc/token` | authorization code/refresh token, PKCE 및 client 인증 처리 |
 | `GET /api/oidc/userinfo` | access token 기반 userinfo 반환 |
 | `GET/POST /api/oidc/logout` | end session logout 처리 |
 | `GET /api/oidc/debug/raw/<key>` | OIDC raw debug bundle 조회 |
@@ -217,6 +221,8 @@ wiz service status myapp
 | `POST /api/idpcore/user-delete` | 테스트 계정 삭제 |
 | `GET /api/idpcore/presets?protocol=saml` | 속성/클레임 프리셋 |
 | `GET /api/idpcore/saml-attribute-catalog` | SAML attribute OID catalog |
+
+구현 범위와 의도적인 미지원 프로필은 [프로토콜 표준 준수 및 기능 감사](docs/standards-compliance.md)에 정리되어 있습니다.
 
 ## WIZ 프로젝트 구조
 

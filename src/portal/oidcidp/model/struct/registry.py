@@ -52,20 +52,10 @@ class Registry:
         return [
             "authorization_code",
             "refresh_token",
-            "implicit",
-            "client_credentials",
         ]
 
     def response_type_options(self):
-        return [
-            "code",
-            "id_token",
-            "token",
-            "code id_token",
-            "code token",
-            "id_token token",
-            "code id_token token",
-        ]
+        return ["code"]
 
     def scope_options(self):
         return [
@@ -309,6 +299,23 @@ class Registry:
         response_types = self._normalize_list(item.get("response_types")) or list(DEFAULT_RESPONSE_TYPES)
         scope_policy = self._normalize_list(item.get("scope_policy")) or list(DEFAULT_SCOPE_POLICY)
         claims_policy = self._normalize_list(item.get("claims_policy"))
+
+        unsupported_grants = [value for value in grant_types if value not in self.grant_type_options()]
+        if unsupported_grants:
+            raise Exception(
+                "실제 token endpoint가 지원하지 않는 grant_type입니다: "
+                + ", ".join(unsupported_grants)
+            )
+        unsupported_responses = [value for value in response_types if value not in self.response_type_options()]
+        if unsupported_responses:
+            raise Exception(
+                "실제 authorize endpoint가 지원하지 않는 response_type입니다: "
+                + ", ".join(unsupported_responses)
+            )
+        if "code" in response_types and "authorization_code" not in grant_types:
+            raise Exception("response_type=code에는 authorization_code grant가 필요합니다.")
+        if "refresh_token" in grant_types and "authorization_code" not in grant_types:
+            raise Exception("refresh_token grant는 authorization_code grant와 함께 등록해야 합니다.")
 
         token_endpoint_auth_method = str(item.get("token_endpoint_auth_method", current.get("token_endpoint_auth_method", "client_secret_basic"))).strip() or "client_secret_basic"
         public_client = str(item.get("public_client", "false")).lower() in ["1", "true", "yes", "on"]

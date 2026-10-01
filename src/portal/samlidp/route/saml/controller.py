@@ -1,6 +1,7 @@
 import html
 import base64
 import datetime
+import hashlib
 import json
 import re
 import uuid
@@ -709,6 +710,28 @@ def _send_html_response(body, status=200):
     wiz.response.set_status(status)
     wiz.response.response(resp)
 
+def _send_metadata_response(xml, filename, cache_seconds=0):
+    flask = wiz.response._flask
+    etag = hashlib.sha256(xml.encode("utf-8")).hexdigest()
+    if_none_match = str(wiz.request.headers("If-None-Match", "") or "").strip()
+    etag_candidates = {
+        item.strip()[2:].strip() if item.strip().startswith("W/") else item.strip()
+        for item in if_none_match.split(",")
+        if item.strip()
+    }
+    if "*" in etag_candidates or etag in etag_candidates or f'"{etag}"' in etag_candidates:
+        resp = flask.Response(status=304)
+    else:
+        resp = flask.Response(xml, mimetype="application/samlmetadata+xml")
+        resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
+    resp.set_etag(etag)
+    resp.headers["Cache-Control"] = (
+        f"public, max-age={int(cache_seconds)}"
+        if int(cache_seconds or 0) > 0 else "no-store"
+    )
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    wiz.response.response(resp)
+
 segment = wiz.request.match("/api/saml/<action>")
 action = segment.action if segment else None
 
@@ -758,26 +781,40 @@ if action == "metadata":
         xml = struct.metadata.generate_xml()
     except ValueError as e:
         wiz.response.status(400, message=str(e))
-    flask = wiz.response._flask
-    resp = flask.Response(xml, mimetype="application/xml")
-    resp.headers["Content-Disposition"] = 'inline; filename="idp-metadata.xml"'
-    wiz.response.response(resp)
+    metadata_variant = str(wiz.request.query("metadata_variant", "standard") or "standard")
+    lifetime = struct.metadata._metadata_lifetime()
+    _send_metadata_response(
+        xml,
+        "idp-metadata.xml",
+        lifetime["cache_seconds"] if metadata_variant == "standard" else 0,
+    )
 
 # --- ReviewOps profile-bound federation metadata (XML) ---
 if action == "federation-metadata":
     try:
         xml = struct.metadata.generate_federation_xml(
-            wiz.request.query("reviewops_profile", "")
+            wiz.request.query("reviewops_profile", ""),
+            federation_name=wiz.request.query("federation", ""),
         )
     except ValueError as e:
         wiz.response.status(400, message=str(e))
-    flask = wiz.response._flask
-    resp = flask.Response(xml, mimetype="application/xml")
-    resp.headers["Content-Disposition"] = (
-        'inline; filename="idp-federation-metadata.xml"'
+    metadata_variant = str(wiz.request.query("metadata_variant", "standard") or "standard")
+    lifetime = struct.metadata._metadata_lifetime()
+    _send_metadata_response(
+        xml,
+        "idp-federation-metadata.xml",
+        lifetime["cache_seconds"] if metadata_variant == "standard" else 0,
     )
-    resp.headers["Cache-Control"] = "no-store"
-    wiz.response.response(resp)
+
+if action == "federation-info":
+    try:
+        info = struct.metadata.federation_info(
+            wiz.request.query("reviewops_profile", ""),
+            federation_name=wiz.request.query("federation", ""),
+        )
+    except ValueError as e:
+        wiz.response.status(400, message=str(e))
+    wiz.response.status(200, data=info)
 
 # --- IdP Info (JSON) ---
 if action == "idp-info":

@@ -75,6 +75,24 @@ def test_execution_settings_are_guided_and_explain_when_they_apply():
     assert "복구할 수 없습니다" in saml_code
 
 
+def test_saml_publish_prioritizes_metadata_and_federation_and_collapses_expert_tools():
+    view = source("src/portal/samlidp/app/idp.metadata/view.pug")
+    metadata = source("src/portal/samlidp/model/struct/metadata.py")
+
+    assert_in_order(view, [
+        "기본 IdP Metadata",
+        "Quick Federation",
+        "고급 테스트 실행 설정",
+        "Metadata XML·호환 시험",
+    ])
+    assert view.count("details(") >= 5
+    assert "수동 연결 정보" in view
+    assert "Signing·Encryption 인증서" in view
+    assert "저장된 Federation · {{federationOptions.length}}개" in view
+    assert "{{idpInfo.metadata_url}}" in view
+    assert '"metadata_url": append_reviewops_profile(' in metadata
+
+
 def test_registration_details_use_summary_rails_and_task_tabs():
     oidc_view = source("src/portal/oidcidp/app/rp.register/view.html")
     oidc_code = source("src/portal/oidcidp/app/rp.register/view.ts")

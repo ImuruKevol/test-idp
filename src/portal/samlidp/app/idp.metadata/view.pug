@@ -4,82 +4,176 @@ div(class="space-y-8")
             div(class="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-slate-300 border-t-orange-500")
             p(class="mt-3 text-sm text-slate-500") IdP 정보를 불러오는 중...
 
-    div(*ngIf="!loading && idpInfo", class="space-y-7")
-        header(class="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-start md:justify-between")
+    div(*ngIf="!loading && idpInfo", class="space-y-6")
+        header(class="flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between")
             div
-                p(class="text-xs font-bold uppercase tracking-[0.16em] text-orange-600") IdP information
-                h2(class="mt-1.5 text-xl font-bold tracking-tight text-slate-950") 연결 정보와 응답 설정
-                p(class="mt-1.5 text-sm leading-6 text-slate-600") 먼저 Metadata를 연결하고, 필요한 경우에만 이름이 있는 실행 설정을 만드세요.
-            button(type="button", class="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50", (click)="loadInfo()") 새로고침
+                p(class="text-xs font-bold uppercase tracking-[0.16em] text-orange-600") SAML IdP
+                h2(class="mt-1 text-xl font-bold tracking-tight text-slate-950") 배포와 Federation
+                p(class="mt-1 text-sm leading-6 text-slate-600") Metadata URL을 연결하거나 여러 테스트 IdP를 한 번에 만드세요.
+            button(type="button", class="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50", (click)="loadInfo()") 새로고침
 
         section(class="overflow-hidden rounded-2xl border border-orange-200 bg-white")
-            header(class="border-b border-orange-100 bg-orange-50 px-5 py-4")
-                div(class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between")
-                    div(class="max-w-2xl")
-                        div(class="flex flex-wrap items-center gap-2")
-                            span(class="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500 text-xs font-bold text-white") A
-                            h3(class="text-base font-bold text-slate-950") 실행 설정
-                            span(class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-orange-700 ring-1 ring-orange-200") 선택 기능
-                        p(class="mt-2 text-sm leading-6 text-slate-600") 이름을 붙여 저장하는 테스트 설정입니다. 저장한 이름이 포함된 SAML endpoint에만 적용되며, 일반 SSO 확인에는 만들 필요가 없습니다.
-                    span(*ngIf="profileResult", class="inline-flex rounded-full px-3 py-1.5 text-xs font-semibold", [class]="profileResult.standards_status === 'standard' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'") {{profileResult.standards_status === 'standard' ? '표준 설정' : '호환 시험 설정'}}
+            div(class="border-b border-orange-100 bg-orange-50 px-5 py-4")
+                div(class="flex flex-wrap items-center justify-between gap-2")
+                    div
+                        h3(class="text-base font-bold text-slate-950") 기본 IdP Metadata
+                        p(class="mt-1 text-sm text-slate-600") SP에는 아래 URL 하나를 먼저 등록하면 됩니다.
+                    span(class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800") 서명됨
+            div(class="space-y-4 p-5")
+                div(class="rounded-xl border border-orange-200 bg-orange-50 p-4")
+                    div(class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between")
+                        div(class="min-w-0")
+                            p(class="text-xs font-bold uppercase tracking-wide text-orange-700") Metadata URL
+                            p(class="mt-2 break-all font-mono text-sm font-semibold text-slate-950") {{idpInfo.metadata_url}}
+                            p(class="mt-2 break-all text-xs text-slate-500") Entity ID · {{idpInfo.entity_id}}
+                        div(class="flex shrink-0 flex-wrap gap-2")
+                            button(type="button", class="rounded-lg border border-orange-200 bg-white px-3 py-2 text-xs font-semibold text-orange-700", (click)="copyToClipboard(idpInfo.metadata_url, 'metadata-url')") {{copied === 'metadata-url' ? '복사됨' : 'URL 복사'}}
+                            a([href]="idpInfo.metadata_url", target="_blank", rel="noopener", class="rounded-lg bg-orange-500 px-3 py-2 text-xs font-semibold text-white") 열기
 
-            div(class="space-y-7 p-6")
-                div(class="rounded-xl border border-slate-200 bg-slate-50 p-4")
+                details(class="group rounded-xl border border-slate-200 bg-white")
+                    summary(class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3")
+                        div
+                            p(class="text-sm font-semibold text-slate-900") 수동 연결 정보
+                            p(class="mt-0.5 text-xs text-slate-500") SSO·SLO endpoint가 필요한 경우에만 확인하세요.
+                        span(class="text-xs font-semibold text-slate-500 group-open:hidden") 펼치기
+                        span(class="hidden text-xs font-semibold text-slate-500 group-open:inline") 접기
+                    div(class="grid gap-3 border-t border-slate-200 p-4 md:grid-cols-2")
+                        div(class="rounded-lg bg-slate-50 p-3")
+                            p(class="text-xs font-bold uppercase tracking-wide text-orange-700") SSO
+                            p(class="mt-2 break-all text-xs leading-5 text-slate-600") POST · {{idpInfo.sso_post}}
+                            p(class="mt-1 break-all text-xs leading-5 text-slate-600") Redirect · {{idpInfo.sso_redirect}}
+                        div(class="rounded-lg bg-slate-50 p-3")
+                            p(class="text-xs font-bold uppercase tracking-wide text-sky-700") SLO
+                            p(class="mt-2 break-all text-xs leading-5 text-slate-600") POST · {{idpInfo.slo_post}}
+                            p(class="mt-1 break-all text-xs leading-5 text-slate-600") Redirect · {{idpInfo.slo_redirect}}
+
+                details(class="group rounded-xl border border-slate-200 bg-white")
+                    summary(class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3")
+                        div
+                            p(class="text-sm font-semibold text-slate-900") Signing·Encryption 인증서
+                            p(class="mt-0.5 text-xs text-slate-500") 용도별 fingerprint와 PEM 인증서 2개
+                        span(class="text-xs font-semibold text-slate-500 group-open:hidden") 펼치기
+                        span(class="hidden text-xs font-semibold text-slate-500 group-open:inline") 접기
+                    div(class="grid gap-3 border-t border-slate-200 p-4 lg:grid-cols-2")
+                        div(class="rounded-xl border border-sky-200 bg-sky-50 p-4")
+                            p(class="text-xs font-bold uppercase tracking-wide text-sky-700") Signing
+                            p(class="mt-1 text-xs text-slate-600") Metadata·Response·Assertion·Logout 서명
+                            p(class="mt-1 text-[11px] text-slate-500") {{idpInfo.signing_certificate_info.public_key_type}} · {{idpInfo.signing_certificate_info.key_size}} bit · {{idpInfo.signing_certificate_info.not_after}}까지
+                            p(class="mt-2 break-all font-mono text-[10px] leading-4 text-slate-600") SHA-256 {{idpInfo.signing_certificate_sha256}}
+                            pre(class="mt-3 max-h-28 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-white p-3 font-mono text-[10px] leading-4 text-slate-500") {{idpInfo.signing_certificate}}
+                            button(type="button", class="mt-2 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700", (click)="copyToClipboard(idpInfo.signing_certificate, 'sign-cert')") {{copied === 'sign-cert' ? '복사됨' : '인증서 복사'}}
+                        div(class="rounded-xl border border-violet-200 bg-violet-50 p-4")
+                            p(class="text-xs font-bold uppercase tracking-wide text-violet-700") Encryption
+                            p(class="mt-1 text-xs text-slate-600") LogoutRequest EncryptedID · AES-GCM/RSA-OAEP
+                            p(class="mt-1 text-[11px] text-slate-500") {{idpInfo.encryption_certificate_info.public_key_type}} · {{idpInfo.encryption_certificate_info.key_size}} bit · {{idpInfo.encryption_certificate_info.not_after}}까지
+                            p(class="mt-2 break-all font-mono text-[10px] leading-4 text-slate-600") SHA-256 {{idpInfo.encryption_certificate_sha256}}
+                            pre(class="mt-3 max-h-28 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-white p-3 font-mono text-[10px] leading-4 text-slate-500") {{idpInfo.encryption_certificate}}
+                            button(type="button", class="mt-2 rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-semibold text-violet-700", (click)="copyToClipboard(idpInfo.encryption_certificate, 'encrypt-cert')") {{copied === 'encrypt-cert' ? '복사됨' : '인증서 복사'}}
+
+        section(class="overflow-hidden rounded-2xl border border-violet-200 bg-white")
+            div(class="border-b border-violet-100 bg-violet-50 px-5 py-4")
+                div(class="flex flex-wrap items-center justify-between gap-2")
+                    div
+                        h3(class="text-base font-bold text-slate-950") Quick Federation
+                        p(class="mt-1 text-sm text-slate-600") 이름과 개수만 정해 여러 IdP와 묶음 Metadata를 만듭니다.
+                    span(class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-200") 최대 20개
+            div(class="space-y-4 p-5")
+                div(class="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_7rem_12rem_auto]")
+                    label(class="text-sm font-medium text-slate-700") 이름
+                        input([(ngModel)]="federationName", (ngModelChange)="service.render()", placeholder="partner-lab", class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm")
+                    label(class="text-sm font-medium text-slate-700") IdP 수
+                        input(type="number", min="1", max="20", [(ngModel)]="federationIdpCount", (ngModelChange)="service.render()", class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm")
+                    label(class="text-sm font-medium text-slate-700") 방식
+                        select([(ngModel)]="federationPreset", (ngModelChange)="service.render()", class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm")
+                            option(value="standard") 표준 서명
+                            option(value="encrypted") Assertion 암호화
+                            option(value="mixed") 표준/암호화 혼합
+                    button(type="button", [disabled]="federationBusy", class="mt-6 h-10 rounded-lg bg-violet-600 px-5 text-sm font-bold text-white transition hover:bg-violet-700 disabled:opacity-50", (click)="createFederation()") {{federationBusy ? '구성 중...' : '만들기'}}
+                label(class="inline-flex items-center gap-2 text-sm text-slate-600")
+                    input(type="checkbox", [(ngModel)]="federationIncludeBase", (ngModelChange)="service.render()", class="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500")
+                    span 기본 IdP 포함
+
+                div(*ngIf="federationResult", class="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between")
+                    div(class="min-w-0")
+                        p(class="text-sm font-bold text-emerald-900") {{federationResult.entity_count}}개 entity 준비 완료
+                        p(class="mt-1 break-all font-mono text-xs text-emerald-800") {{federationResult.endpoint}}
+                    div(class="flex shrink-0 gap-2")
+                        button(type="button", class="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-800", (click)="copyToClipboard(federationResult.endpoint, 'quick-federation')") {{copied === 'quick-federation' ? '복사됨' : 'URL 복사'}}
+                        a([href]="federationResult.endpoint", target="_blank", rel="noopener", class="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white") 열기
+
+                details(*ngIf="federationOptions.length > 0", class="group rounded-xl border border-slate-200 bg-white")
+                    summary(class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-slate-800")
+                        span 저장된 Federation · {{federationOptions.length}}개
+                        span(class="text-xs text-slate-500 group-open:hidden") 보기
+                        span(class="hidden text-xs text-slate-500 group-open:inline") 접기
+                    div(class="divide-y divide-slate-100 border-t border-slate-200 px-4")
+                        div(*ngFor="let item of federationOptions", class="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between")
+                            div(class="min-w-0")
+                                p(class="text-sm font-semibold text-slate-900") {{item.name}} · {{item.entity_count}} entities
+                                p(class="mt-1 truncate font-mono text-[11px] text-slate-500") {{item.metadata_url}}
+                            div(class="flex shrink-0 gap-2")
+                                button(type="button", class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700", (click)="copyToClipboard(item.metadata_url, 'federation-' + item.name)") {{copied === 'federation-' + item.name ? '복사됨' : '복사'}}
+                                a([href]="item.metadata_url", target="_blank", rel="noopener", class="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white") 열기
+                                button(type="button", [disabled]="federationBusy", class="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-50", (click)="deleteFederation(item)") 삭제
+
+        details(class="group overflow-hidden rounded-2xl border border-slate-200 bg-white")
+            summary(class="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4")
+                div
+                    div(class="flex flex-wrap items-center gap-2")
+                        h3(class="text-base font-bold text-slate-950") 고급 테스트 실행 설정
+                        span(class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600") 선택 기능
+                    p(class="mt-1 text-sm text-slate-500") 일반 SSO에는 만들 필요가 없습니다. 오류·암호화·Attribute 시험에서만 사용하세요.
+                span(class="text-xs font-semibold text-slate-500 group-open:hidden") 펼치기
+                span(class="hidden text-xs font-semibold text-slate-500 group-open:inline") 접기
+            div(class="space-y-6 border-t border-slate-200 p-5")
+                div(class="rounded-xl bg-slate-50 p-4")
                     div(class="flex flex-wrap items-center justify-between gap-3")
                         div
                             h4(class="text-sm font-semibold text-slate-900") 저장된 실행 설정
-                            p(class="mt-1 text-xs leading-5 text-slate-500") 선택하면 저장된 값과 해당 SAML Metadata·endpoint를 바로 불러옵니다.
-                        button(type="button", class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50", (click)="startNewProfile()") 새 설정
-                    p(*ngIf="profileOptions.length === 0", class="mt-3 rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500") 아직 저장된 실행 설정이 없습니다.
-                    div(*ngIf="profileOptions.length > 0", class="mt-3 grid max-h-48 gap-2 overflow-auto pr-1 sm:grid-cols-2 xl:grid-cols-3")
-                        button(*ngFor="let item of profileOptions", type="button", class="rounded-xl border px-3 py-3 text-left transition", [class]="profileOptionClass(item.name)", (click)="selectProfile(item)")
+                            p(class="mt-1 text-xs text-slate-500") 선택하면 설정과 endpoint가 함께 적용됩니다.
+                        button(type="button", class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700", (click)="startNewProfile()") 새 설정
+                    p(*ngIf="profileOptions.length === 0", class="mt-3 text-sm text-slate-500") 아직 저장된 실행 설정이 없습니다.
+                    div(*ngIf="profileOptions.length > 0", class="mt-3 grid max-h-40 gap-2 overflow-auto sm:grid-cols-2 xl:grid-cols-3")
+                        button(*ngFor="let item of profileOptions", type="button", class="rounded-lg border px-3 py-2 text-left transition", [class]="profileOptionClass(item.name)", (click)="selectProfile(item)")
                             span(class="flex items-center justify-between gap-2")
                                 strong(class="truncate text-sm font-semibold") {{item.name}}
-                                span(class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", [class]="item.standards_status === 'standard' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'") {{item.standards_status === 'standard' ? '표준' : '호환 시험'}}
-                            span(class="mt-1 block text-xs opacity-70") {{item.sign_response ? 'Response 서명' : 'Response 미서명'}} · {{item.response_variant}}
+                                span(class="shrink-0 text-[11px] font-semibold") {{item.standards_status === 'standard' ? '표준' : '호환 시험'}}
 
-                div(class="grid gap-3 lg:grid-cols-[1.25rem_minmax(0,1fr)_auto] lg:items-end")
-                    span(class="hidden h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white lg:flex") 1
-                    div
-                        label(class="text-sm font-semibold text-slate-900") 설정 이름
-                        input([(ngModel)]="profileName", (ngModelChange)="profileChanged()", placeholder="예: keycloud-saml-a", class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100")
-                        p(class="mt-1.5 text-xs leading-5 text-slate-500") 영문 소문자, 숫자, 하이픈만 사용할 수 있습니다. 이 이름이 들어간 Metadata와 SSO/SLO endpoint가 함께 만들어집니다.
-                    button(type="button", [disabled]="profileBusy", class="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50", (click)="loadProfile()") {{profileBusy ? '처리 중...' : '불러오기'}}
+                div(class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]")
+                    label(class="text-sm font-semibold text-slate-900") 설정 이름
+                        input([(ngModel)]="profileName", (ngModelChange)="profileChanged()", placeholder="keycloud-saml-a", class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm")
+                    button(type="button", [disabled]="profileBusy", class="mt-6 h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 disabled:opacity-50", (click)="loadProfile()") {{profileBusy ? '처리 중...' : '불러오기'}}
 
                 div
-                    div(class="flex items-center gap-2")
-                        span(class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white") 2
-                        h4(class="text-sm font-semibold text-slate-900") 확인할 상황 선택
+                    h4(class="text-sm font-semibold text-slate-900") 확인할 상황 선택
                     div(class="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4")
                         button(type="button", [class]="presetClass('standard')", (click)="applyPreset('standard')")
                             strong(class="block text-sm font-semibold") 기본 SSO
-                            span(class="mt-1 block text-xs leading-5 opacity-75") Response·Assertion 서명
+                            span(class="mt-1 block text-xs opacity-75") Response·Assertion 서명
                         button(type="button", [class]="presetClass('encrypted')", (click)="applyPreset('encrypted')")
                             strong(class="block text-sm font-semibold") Assertion 암호화
-                            span(class="mt-1 block text-xs leading-5 opacity-75") AES-256-GCM·RSA-OAEP
+                            span(class="mt-1 block text-xs opacity-75") AES-GCM·RSA-OAEP
                         button(type="button", [class]="presetClass('attributes')", (click)="applyPreset('attributes')")
                             strong(class="block text-sm font-semibold") Attribute 매핑
-                            span(class="mt-1 block text-xs leading-5 opacity-75") 다중값 fixture 포함
+                            span(class="mt-1 block text-xs opacity-75") 다중값 fixture
                         button(type="button", [class]="presetClass('error')", (click)="applyPreset('error')")
                             strong(class="block text-sm font-semibold") 오류 응답
-                            span(class="mt-1 block text-xs leading-5 opacity-75") 만료 Assertion부터 시작
+                            span(class="mt-1 block text-xs opacity-75") 만료 Assertion
 
                 div
-                    div(class="flex items-center gap-2")
-                        span(class="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white") 3
-                        h4(class="text-sm font-semibold text-slate-900") 주요 값 확인
+                    h4(class="text-sm font-semibold text-slate-900") 주요 값 확인
                     div(class="mt-3 grid gap-3 rounded-xl bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-4")
-                        label(class="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700")
-                            input(type="checkbox", [(ngModel)]="signResponse", (ngModelChange)="profileChanged()", class="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500")
+                        label(class="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700")
+                            input(type="checkbox", [(ngModel)]="signResponse", (ngModelChange)="profileChanged()", class="h-4 w-4 rounded border-slate-300 text-orange-500")
                             span Response 서명
-                        label(class="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700")
-                            input(type="checkbox", [(ngModel)]="signAssertion", (ngModelChange)="profileChanged()", class="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500")
+                        label(class="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700")
+                            input(type="checkbox", [(ngModel)]="signAssertion", (ngModelChange)="profileChanged()", class="h-4 w-4 rounded border-slate-300 text-orange-500")
                             span Assertion 서명
-                        label(class="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700")
-                            input(type="checkbox", [(ngModel)]="encryptAssertion", (ngModelChange)="profileChanged()", class="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500")
+                        label(class="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700")
+                            input(type="checkbox", [(ngModel)]="encryptAssertion", (ngModelChange)="profileChanged()", class="h-4 w-4 rounded border-slate-300 text-orange-500")
                             span EncryptedAssertion
                         label(class="text-sm font-medium text-slate-700") 응답 형태
-                            select([(ngModel)]="responseVariant", (ngModelChange)="profileChanged()", class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm")
+                            select([(ngModel)]="responseVariant", (ngModelChange)="profileChanged()", class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2")
                                 option(value="standard") 표준 응답
                                 option(value="wrong_issuer") Issuer 불일치
                                 option(value="wrong_audience") Audience 불일치
@@ -95,8 +189,8 @@ div(class="space-y-8")
                 details(class="group rounded-xl border border-slate-200 bg-white")
                     summary(class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-slate-800")
                         span 고급 응답 설정
-                        span(class="text-xs font-medium text-slate-500 group-open:hidden") 펼치기
-                        span(class="hidden text-xs font-medium text-slate-500 group-open:inline") 접기
+                        span(class="text-xs text-slate-500 group-open:hidden") 펼치기
+                        span(class="hidden text-xs text-slate-500 group-open:inline") 접기
                     div(class="grid gap-4 border-t border-slate-200 p-4 md:grid-cols-2")
                         label(class="text-sm font-medium text-slate-700") Content encryption
                             select([(ngModel)]="contentEncryptionAlgorithm", (ngModelChange)="profileChanged()", [disabled]="!encryptAssertion", class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm disabled:bg-slate-100")
@@ -122,73 +216,32 @@ div(class="space-y-8")
                             textarea([(ngModel)]="attributeValuesText", (ngModelChange)="profileChanged()", rows="4", class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 font-mono text-xs leading-5")
 
                 div(*ngIf="profileMessage", class="rounded-xl border px-4 py-3", [class]="profileResult?.standards_status === 'compatibility' ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'")
-                    p(class="text-sm font-semibold", [class]="profileResult?.standards_status === 'compatibility' ? 'text-amber-900' : 'text-emerald-800'") {{profileMessage}}
+                    div(class="flex flex-wrap items-center gap-2")
+                        p(class="text-sm font-semibold", [class]="profileResult?.standards_status === 'compatibility' ? 'text-amber-900' : 'text-emerald-800'") {{profileMessage}}
+                        span(*ngIf="profileResult", class="rounded-full px-2 py-0.5 text-xs font-semibold", [class]="profileResult.standards_status === 'standard' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'") {{profileResult.standards_status === 'standard' ? '표준 설정' : '호환 시험 설정'}}
                     ul(*ngIf="profileResult?.standards_warnings?.length", class="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800")
                         li(*ngFor="let warning of profileResult.standards_warnings") {{warning}}
 
-                footer(class="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-end")
-                    button(type="button", [disabled]="profileBusy || !hasSavedProfile()", class="h-10 rounded-xl border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40", (click)="deleteProfile()") {{profileBusy ? '처리 중...' : '실행 설정 삭제'}}
-                    button(type="button", [disabled]="profileBusy", class="h-10 rounded-xl bg-orange-500 px-5 text-sm font-bold text-white transition hover:bg-orange-600 disabled:opacity-50", (click)="saveProfile()") {{profileBusy ? '처리 중...' : '저장하고 endpoint 적용'}}
+                div(class="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end")
+                    button(type="button", [disabled]="profileBusy || !hasSavedProfile()", class="h-10 rounded-lg border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 disabled:opacity-40", (click)="deleteProfile()") {{profileBusy ? '처리 중...' : '실행 설정 삭제'}}
+                    button(type="button", [disabled]="profileBusy", class="h-10 rounded-lg bg-orange-500 px-5 text-sm font-bold text-white disabled:opacity-50", (click)="saveProfile()") {{profileBusy ? '처리 중...' : '저장하고 적용'}}
 
-        section(class="space-y-4")
-            div(class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between")
+        details(class="group overflow-hidden rounded-2xl border border-slate-200 bg-white")
+            summary(class="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4")
                 div
-                    h3(class="text-base font-bold text-slate-950") 연결에 필요한 값
-                    p(class="mt-1 text-sm text-slate-500") SP에는 Metadata URL을 먼저 등록하세요. 수동 등록이 필요할 때 아래 값을 사용합니다.
-                span(class="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700") Metadata 서명됨
-
-            div(class="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]")
-                div(class="space-y-3")
-                    div(class="rounded-xl border border-orange-200 bg-orange-50 p-4")
-                        div(class="flex items-start justify-between gap-3")
-                            div(class="min-w-0")
-                                p(class="text-xs font-bold uppercase tracking-wide text-orange-700") Entity ID
-                                p(class="mt-2 break-all text-sm font-semibold text-slate-950") {{idpInfo.entity_id}}
-                            button(type="button", class="shrink-0 rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-xs font-semibold text-orange-700", (click)="copyToClipboard(idpInfo.entity_id, 'entityId')") {{copied === 'entityId' ? '복사됨' : '복사'}}
-                    div(class="grid gap-3 md:grid-cols-2")
-                        div(class="rounded-xl border border-slate-200 p-4")
-                            p(class="text-sm font-semibold text-slate-900") SSO endpoint
-                            div(class="mt-3 space-y-3")
-                                div(class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2")
-                                    span(class="rounded-md bg-orange-50 px-2 py-1 text-center text-xs font-bold text-orange-700") POST
-                                    span(class="break-all text-sm text-slate-600") {{idpInfo.sso_post}}
-                                div(class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2")
-                                    span(class="rounded-md bg-orange-50 px-2 py-1 text-center text-xs font-bold text-orange-700") Redirect
-                                    span(class="break-all text-sm text-slate-600") {{idpInfo.sso_redirect}}
-                        div(class="rounded-xl border border-slate-200 p-4")
-                            p(class="text-sm font-semibold text-slate-900") SLO endpoint
-                            div(class="mt-3 space-y-3")
-                                div(class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2")
-                                    span(class="rounded-md bg-sky-50 px-2 py-1 text-center text-xs font-bold text-sky-700") POST
-                                    span(class="break-all text-sm text-slate-600") {{idpInfo.slo_post}}
-                                div(class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2")
-                                    span(class="rounded-md bg-sky-50 px-2 py-1 text-center text-xs font-bold text-sky-700") Redirect
-                                    span(class="break-all text-sm text-slate-600") {{idpInfo.slo_redirect}}
-                aside(class="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4")
-                    div
-                        p(class="text-sm font-semibold text-slate-900") 지원 정보
-                        p(class="mt-1 text-sm text-slate-600") {{idpInfo.sign_algorithm}}
-                    div(class="flex flex-wrap gap-2")
-                        span(*ngFor="let fmt of idpInfo.nameid_formats", class="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200") {{getNameIdShort(fmt)}}
-                    details(class="rounded-lg border border-slate-200 bg-white")
-                        summary(class="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-700") Signing Certificate
-                        div(class="border-t border-slate-200 p-3")
-                            pre(class="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-slate-600") {{idpInfo.certificate}}
-                            button(type="button", class="mt-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600", (click)="copyToClipboard(idpInfo.certificate, 'cert')") {{copied === 'cert' ? '복사됨' : '인증서 복사'}}
-
-        section(class="rounded-2xl border border-slate-200 bg-white")
-            header(class="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between")
-                div
-                    h3(class="text-base font-bold text-slate-950") IdP Metadata XML
-                    p(class="mt-1 text-sm text-slate-500") 표준 응답이 기본입니다. 호환 시험은 선택 즉시 상태가 구분됩니다.
-                div(class="flex flex-wrap gap-2")
+                    h3(class="text-base font-bold text-slate-950") Metadata XML·호환 시험
+                    p(class="mt-1 text-sm text-slate-500") 원문 확인, 복사, 비정상 signature 시험 도구
+                span(class="text-xs font-semibold text-slate-500 group-open:hidden") 펼치기
+                span(class="hidden text-xs font-semibold text-slate-500 group-open:inline") 접기
+            div(class="border-t border-slate-200")
+                div(class="flex flex-wrap gap-2 p-4")
                     select([(ngModel)]="metadataVariant", (ngModelChange)="reloadMetadataVariant()", class="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700")
                         option(value="standard") 표준 · 서명됨
                         option(value="unsigned") 호환 시험 · 서명 없음
                         option(value="bad_signature") 호환 시험 · 잘못된 signature
                     button(type="button", class="h-9 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700", (click)="copyToClipboard(metadataXml, 'xml')") {{copied === 'xml' ? '복사됨' : 'XML 복사'}}
                     button(type="button", class="h-9 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white", (click)="downloadXml()") 다운로드
-            pre(class="max-h-[30rem] overflow-auto bg-slate-950 p-5 font-mono text-xs leading-6 text-slate-200") {{metadataXml}}
+                pre(class="max-h-[30rem] overflow-auto bg-slate-950 p-5 font-mono text-xs leading-6 text-slate-200") {{metadataXml}}
 
     div(*ngIf="!loading && !idpInfo", class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center")
         p(class="text-sm font-semibold text-slate-700") IdP 정보를 불러오지 못했습니다.

@@ -25,6 +25,21 @@ MAX_ATTRIBUTE_VALUES = 32
 MAX_ATTRIBUTE_NAME_LENGTH = 512
 MAX_ATTRIBUTE_VALUE_COUNT = 16
 MAX_ATTRIBUTE_VALUE_LENGTH = 2048
+DEFAULT_METADATA_VALIDITY_MINUTES = 1440
+DEFAULT_METADATA_CACHE_MINUTES = 15
+MAX_FEDERATION_ENTITIES = 50
+MAX_QUICK_IDPS = 20
+MAX_QUICK_FEDERATION_NAME_LENGTH = 57
+FEDERATION_PATTERN = re.compile(r"^[a-z0-9-]{1,64}$")
+INBOUND_CONTENT_ENCRYPTION_ALGORITHMS = [
+    "http://www.w3.org/2009/xmlenc11#aes128-gcm",
+    "http://www.w3.org/2009/xmlenc11#aes192-gcm",
+    "http://www.w3.org/2009/xmlenc11#aes256-gcm",
+]
+INBOUND_KEY_TRANSPORT_ALGORITHMS = [
+    "http://www.w3.org/2009/xmlenc11#rsa-oaep",
+    "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p",
+]
 
 
 def normalize_reviewops_profile(value):
@@ -51,37 +66,68 @@ class Metadata:
     def _cert_fs(self):
         return wiz.project.fs("metadata", "saml", "idp")
 
-    def _ensure_keypair(self):
-        fs = self._cert_fs()
-        if fs.exists("idp-cert.pem") and fs.exists("idp-key.pem"):
-            return
-
+    def _generate_keypair(self, common_name, purpose):
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.COMMON_NAME, "Test SAML IdP"),
+            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test IdP"),
         ])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        signing = purpose == "signing"
         cert = (
             x509.CertificateBuilder()
             .subject_name(subject)
             .issuer_name(issuer)
             .public_key(key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.datetime.utcnow())
-            .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=3650))
+            .not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=3650))
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(
+                x509.KeyUsage(
+                    digital_signature=signing,
+                    content_commitment=False,
+                    key_encipherment=not signing,
+                    data_encipherment=False,
+                    key_agreement=False,
+                    key_cert_sign=False,
+                    crl_sign=False,
+                    encipher_only=None,
+                    decipher_only=None,
+                ),
+                critical=True,
+            )
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+                critical=False,
+            )
             .sign(key, hashes.SHA256())
         )
-
         key_pem = key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         ).decode("utf-8")
-
         cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+        return key_pem, cert_pem
 
-        fs.write("idp-key.pem", key_pem)
-        fs.write("idp-cert.pem", cert_pem)
+    def _ensure_keypair(self):
+        fs = self._cert_fs()
+        pairs = [
+            ("idp-key.pem", "idp-cert.pem", "Test SAML IdP Signing", "signing"),
+            (
+                "idp-encryption-key.pem",
+                "idp-encryption-cert.pem",
+                "Test SAML IdP Encryption",
+                "encryption",
+            ),
+        ]
+        for key_path, cert_path, common_name, purpose in pairs:
+            if fs.exists(key_path) and fs.exists(cert_path):
+                continue
+            key_pem, cert_pem = self._generate_keypair(common_name, purpose)
+            fs.write(key_path, key_pem)
+            fs.write(cert_path, cert_pem)
 
     def get_cert_pem(self):
         self._ensure_keypair()
@@ -99,6 +145,21 @@ class Metadata:
         body_lines = [l for l in lines if not l.startswith("-----")]
         return "".join(body_lines)
 
+    def get_encryption_cert_pem(self):
+        self._ensure_keypair()
+        return self._cert_fs().read("idp-encryption-cert.pem")
+
+    def get_encryption_key_pem(self):
+        self._ensure_keypair()
+        return self._cert_fs().read("idp-encryption-key.pem")
+
+    def get_encryption_cert_body(self):
+        pem = self.get_encryption_cert_pem()
+        return "".join(
+            line for line in pem.strip().split("\n")
+            if not line.startswith("-----")
+        )
+
     def _base_url(self):
         config = wiz.config("season")
         base_url = None
@@ -111,6 +172,97 @@ class Metadata:
             scheme = wiz.request.headers("X-Forwarded-Proto", "http")
             base_url = f"{scheme}://{host}"
         return base_url.rstrip("/")
+
+    def _idp_config_value(self, key, default):
+        try:
+            config = wiz.config("idp")
+            return getattr(config, key, default)
+        except Exception:
+            return default
+
+    def _metadata_lifetime(self):
+        validity_minutes = int(self._idp_config_value(
+            "SAML_METADATA_VALIDITY_MINUTES",
+            DEFAULT_METADATA_VALIDITY_MINUTES,
+        ) or DEFAULT_METADATA_VALIDITY_MINUTES)
+        cache_minutes = int(self._idp_config_value(
+            "SAML_METADATA_CACHE_MINUTES",
+            DEFAULT_METADATA_CACHE_MINUTES,
+        ) or DEFAULT_METADATA_CACHE_MINUTES)
+        validity_minutes = max(5, min(validity_minutes, 10080))
+        cache_minutes = max(1, min(cache_minutes, validity_minutes))
+        bucket_seconds = cache_minutes * 60
+        now_epoch = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+        generated_epoch = now_epoch - (now_epoch % bucket_seconds)
+        generated_at = datetime.datetime.fromtimestamp(
+            generated_epoch,
+            datetime.timezone.utc,
+        )
+        valid_until = generated_at + datetime.timedelta(minutes=validity_minutes)
+        return {
+            "generated_at": generated_at,
+            "valid_until": valid_until,
+            "valid_until_text": valid_until.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "cache_minutes": cache_minutes,
+            "cache_seconds": cache_minutes * 60,
+            "cache_duration": f"PT{cache_minutes}M",
+        }
+
+    def _certificate_sha256(self, purpose="signing"):
+        cert_pem = (
+            self.get_encryption_cert_pem()
+            if purpose == "encryption" else self.get_cert_pem()
+        )
+        try:
+            certificate = x509.load_pem_x509_certificate(cert_pem.encode("utf-8"))
+            digest = certificate.fingerprint(hashes.SHA256()).hex()
+        except Exception:
+            body = (
+                self.get_encryption_cert_body()
+                if purpose == "encryption" else self.get_cert_body()
+            )
+            digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        return digest.upper()
+
+    def _certificate_info(self, purpose="signing"):
+        cert_pem = (
+            self.get_encryption_cert_pem()
+            if purpose == "encryption" else self.get_cert_pem()
+        )
+        certificate = x509.load_pem_x509_certificate(cert_pem.encode("utf-8"))
+        public_key = certificate.public_key()
+        key_size = int(getattr(public_key, "key_size", 0) or 0)
+        if hasattr(certificate, "not_valid_before_utc"):
+            not_before = certificate.not_valid_before_utc
+            not_after = certificate.not_valid_after_utc
+        else:
+            not_before = certificate.not_valid_before.replace(tzinfo=datetime.timezone.utc)
+            not_after = certificate.not_valid_after.replace(tzinfo=datetime.timezone.utc)
+        return {
+            "purpose": purpose,
+            "sha256": self._certificate_sha256(purpose),
+            "subject": certificate.subject.rfc4514_string(),
+            "serial_number": format(certificate.serial_number, "X"),
+            "not_before": not_before.isoformat(),
+            "not_after": not_after.isoformat(),
+            "public_key_type": public_key.__class__.__name__,
+            "key_size": key_size,
+        }
+
+    def normalize_federation_name(self, value):
+        value = str(value or "").strip()
+        if FEDERATION_PATTERN.fullmatch(value) is None:
+            raise ValueError("Federation 이름은 영문 소문자, 숫자, 하이픈만 사용해 1~64자로 입력해야 합니다.")
+        return value
+
+    def _federation_path(self, name):
+        return f"federation-group-{self.normalize_federation_name(name)}.json"
+
+    def _federation_url(self, name=""):
+        endpoint = f"{self._base_url()}/api/saml/federation-metadata"
+        if name:
+            endpoint = f"{endpoint}?{urllib.parse.urlencode({'federation': self.normalize_federation_name(name)})}"
+        return endpoint
 
     def reviewops_profile(self, value=None):
         if value is None:
@@ -285,7 +437,9 @@ class Metadata:
         profiles = []
         prefix = "reviewops-profile-"
         suffix = ".json"
-        for filename in self._cert_fs().files():
+        fs = self._cert_fs()
+        filenames = fs.files() if callable(getattr(fs, "files", None)) else []
+        for filename in filenames:
             name = str(filename or "")
             if not name.startswith(prefix) or not name.endswith(suffix):
                 continue
@@ -303,6 +457,148 @@ class Metadata:
                 "response_variant": settings.get("response_variant", "standard"),
             })
         return sorted(profiles, key=lambda item: item["name"])
+
+    def get_federation(self, name):
+        name = self.normalize_federation_name(name)
+        path = self._federation_path(name)
+        fs = self._cert_fs()
+        if not fs.exists(path):
+            return None
+        value = fs.read.json(path, default={})
+        if not isinstance(value, dict):
+            return None
+        profiles = []
+        for item in value.get("profiles", []):
+            profile = self.reviewops_profile(item)
+            if profile and profile not in profiles:
+                profiles.append(profile)
+        return {
+            "name": name,
+            "profiles": profiles,
+            "include_base": value.get("include_base") is not False,
+            "preset": str(value.get("preset", "standard") or "standard"),
+            "created": str(value.get("created", "") or ""),
+            "metadata_url": self._federation_url(name),
+            "entity_count": len(profiles) + (1 if value.get("include_base") is not False else 0),
+        }
+
+    def list_federations(self):
+        fs = self._cert_fs()
+        filenames = fs.files() if callable(getattr(fs, "files", None)) else []
+        prefix = "federation-group-"
+        suffix = ".json"
+        result = []
+        for filename in filenames:
+            value = str(filename or "")
+            if not value.startswith(prefix) or not value.endswith(suffix):
+                continue
+            name = value[len(prefix):-len(suffix)]
+            try:
+                federation = self.get_federation(name)
+            except ValueError:
+                continue
+            if federation is not None:
+                result.append(federation)
+        return sorted(result, key=lambda item: item["name"])
+
+    def create_federation(
+        self,
+        name,
+        count=3,
+        include_base=True,
+        preset="standard",
+        profiles=None,
+    ):
+        name = self.normalize_federation_name(name)
+        preset = str(preset or "standard").strip()
+        if preset not in ["standard", "encrypted", "mixed"]:
+            raise ValueError("Federation preset은 standard, encrypted, mixed 중 하나여야 합니다.")
+        quick_create = profiles is None
+        if quick_create:
+            if len(name) > MAX_QUICK_FEDERATION_NAME_LENGTH:
+                raise ValueError(
+                    f"빠른 생성 Federation 이름은 최대 {MAX_QUICK_FEDERATION_NAME_LENGTH}자여야 합니다."
+                )
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                raise ValueError("IdP 개수는 정수여야 합니다.")
+            if count < 1 or count > MAX_QUICK_IDPS:
+                raise ValueError(f"한 번에 만들 IdP는 1~{MAX_QUICK_IDPS}개여야 합니다.")
+            profiles = [f"{name}-idp-{index}" for index in range(1, count + 1)]
+        normalized_profiles = []
+        for item in profiles:
+            profile = self.reviewops_profile(item)
+            if not profile:
+                raise ValueError("Federation IdP 이름은 비어 있을 수 없습니다.")
+            if profile not in normalized_profiles:
+                normalized_profiles.append(profile)
+        entity_count = len(normalized_profiles) + (1 if include_base else 0)
+        if entity_count < 1 or entity_count > MAX_FEDERATION_ENTITIES:
+            raise ValueError(f"Federation은 1~{MAX_FEDERATION_ENTITIES}개 entity를 포함해야 합니다.")
+
+        existing_profiles = {
+            item["name"] for item in self.list_response_profiles()
+        }
+        created_profiles = []
+        reused_profiles = []
+        reconfigured_profiles = []
+        for index, profile in enumerate(normalized_profiles):
+            exists = profile in existing_profiles
+            if exists and not quick_create:
+                reused_profiles.append(profile)
+                continue
+            selected = preset
+            if preset == "mixed":
+                selected = "encrypted" if index % 2 else "standard"
+            response_options = {
+                "encrypt_assertion": selected == "encrypted",
+                "content_encryption_algorithm": "aes256-gcm",
+                "key_transport_algorithm": "rsa-oaep-sha256",
+                "response_variant": "standard",
+                "time_offset_seconds": 0,
+                "assertion_ttl_seconds": 300,
+            }
+            self.configure_response_defaults(
+                profile,
+                sign_response=True,
+                sign_assertion=True,
+                response_options=response_options,
+            )
+            if exists:
+                reconfigured_profiles.append(profile)
+            else:
+                created_profiles.append(profile)
+
+        created = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self._cert_fs().write.json(
+            self._federation_path(name),
+            {
+                "name": name,
+                "profiles": normalized_profiles,
+                "include_base": bool(include_base),
+                "preset": preset,
+                "created": created,
+            },
+            indent=2,
+        )
+        result = self.federation_info(federation_name=name)
+        result.update({
+            "created_profiles": created_profiles,
+            "reused_profiles": reused_profiles,
+            "reconfigured_profiles": reconfigured_profiles,
+            "preset": preset,
+        })
+        return result
+
+    def delete_federation(self, name):
+        name = self.normalize_federation_name(name)
+        path = self._federation_path(name)
+        fs = self._cert_fs()
+        if not fs.exists(path):
+            raise ValueError("Federation 구성을 찾을 수 없습니다.")
+        fs.delete(path)
+        return {"name": name, "deleted": True}
 
     def normalize_response_options(self, value):
         value = value or {}
@@ -395,16 +691,44 @@ class Metadata:
         profile = self.reviewops_profile(reviewops_profile)
         entity = self.entity_id(profile)
         cert_body = self.get_cert_body()
+        encryption_cert_body = self.get_encryption_cert_body()
+        lifetime = self._metadata_lifetime()
+        federation_url = f"{base}/api/saml/federation-metadata"
+        if profile:
+            federation_url = append_reviewops_profile(federation_url, profile)
 
         return {
             "entity_id": entity,
+            "metadata_url": append_reviewops_profile(
+                f"{base}/api/saml/metadata",
+                profile,
+            ),
             "sso_post": append_reviewops_profile(f"{base}/api/saml/sso", profile),
             "sso_redirect": append_reviewops_profile(f"{base}/api/saml/sso", profile),
             "slo_post": append_reviewops_profile(f"{base}/api/saml/slo", profile),
             "slo_redirect": append_reviewops_profile(f"{base}/api/saml/slo", profile),
             "certificate": cert_body,
+            "signing_certificate": cert_body,
+            "encryption_certificate": encryption_cert_body,
             "sign_algorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
             "metadata_signed": True,
+            "metadata_valid_until": lifetime["valid_until_text"],
+            "metadata_cache_seconds": lifetime["cache_seconds"],
+            "federation_metadata": federation_url,
+            "federation_name": str(self._idp_config_value(
+                "SAML_FEDERATION_NAME",
+                "Debug IdP Federation",
+            )),
+            "certificate_sha256": self._certificate_sha256(),
+            "signing_certificate_sha256": self._certificate_sha256("signing"),
+            "encryption_certificate_sha256": self._certificate_sha256("encryption"),
+            "signing_certificate_info": self._certificate_info("signing"),
+            "encryption_certificate_info": self._certificate_info("encryption"),
+            "inbound_encryption_support": [
+                "LogoutRequest EncryptedID",
+                "AES-GCM",
+                "RSA-OAEP",
+            ],
             "organization": "Debug IdP",
             "contacts": ["technical@nanoha.kr", "security@nanoha.kr"],
             "content_encryption_algorithms": [
@@ -441,23 +765,19 @@ class Metadata:
         ed = etree.Element(f"{{{NS_MD}}}EntityDescriptor", nsmap=nsmap)
         ed.set("entityID", info["entity_id"])
         ed.set("ID", f"_idp_{hashlib.sha256(info['entity_id'].encode()).hexdigest()[:20]}")
+        lifetime = self._metadata_lifetime()
+        ed.set("validUntil", lifetime["valid_until_text"])
+        ed.set("cacheDuration", lifetime["cache_duration"])
 
         idp_sso = etree.SubElement(ed, f"{{{NS_MD}}}IDPSSODescriptor")
         idp_sso.set("protocolSupportEnumeration", "urn:oasis:names:tc:SAML:2.0:protocol")
         idp_sso.set("WantAuthnRequestsSigned", "false")
 
         extensions = etree.SubElement(idp_sso, f"{{{NS_MD}}}Extensions")
-        for algorithm in [
-            "http://www.w3.org/2001/04/xmlenc#sha256",
-            "http://www.w3.org/2001/04/xmlenc#sha512",
-        ]:
+        for algorithm in ["http://www.w3.org/2001/04/xmlenc#sha256"]:
             digest = etree.SubElement(extensions, f"{{{NS_ALG}}}DigestMethod")
             digest.set("Algorithm", algorithm)
-        for algorithm in [
-            "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
-            "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384",
-            "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
-        ]:
+        for algorithm in ["http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"]:
             signing = etree.SubElement(extensions, f"{{{NS_ALG}}}SigningMethod")
             signing.set("Algorithm", algorithm)
             signing.set("MinKeySize", "2048")
@@ -474,18 +794,25 @@ class Metadata:
         encryption_ki = etree.SubElement(encryption_kd, f"{{{NS_DS}}}KeyInfo")
         encryption_x509d = etree.SubElement(encryption_ki, f"{{{NS_DS}}}X509Data")
         encryption_x509c = etree.SubElement(encryption_x509d, f"{{{NS_DS}}}X509Certificate")
-        encryption_x509c.text = info["certificate"]
-        for algorithm in [
-            "http://www.w3.org/2009/xmlenc11#aes256-gcm",
-            "http://www.w3.org/2009/xmlenc11#aes192-gcm",
-            "http://www.w3.org/2009/xmlenc11#aes128-gcm",
-            "http://www.w3.org/2001/04/xmlenc#aes256-cbc",
-            "http://www.w3.org/2001/04/xmlenc#aes192-cbc",
-            "http://www.w3.org/2001/04/xmlenc#aes128-cbc",
-            "http://www.w3.org/2001/04/xmlenc#tripledes-cbc",
-        ]:
+        encryption_x509c.text = info["encryption_certificate"]
+        for algorithm in (
+            INBOUND_CONTENT_ENCRYPTION_ALGORITHMS
+            + INBOUND_KEY_TRANSPORT_ALGORITHMS
+        ):
             method = etree.SubElement(encryption_kd, f"{{{NS_MD}}}EncryptionMethod")
             method.set("Algorithm", algorithm)
+            if algorithm == "http://www.w3.org/2009/xmlenc11#rsa-oaep":
+                # XML Encryption 1.1 otherwise defaults both values to SHA-1.
+                # Publish the parameters this IdP prefers and accepts for the
+                # modern URI; the legacy rsa-oaep-mgf1p entry intentionally
+                # represents its standard fixed-MGF1-SHA1 compatibility mode.
+                digest = etree.SubElement(method, f"{{{NS_DS}}}DigestMethod")
+                digest.set("Algorithm", "http://www.w3.org/2001/04/xmlenc#sha256")
+                mgf = etree.SubElement(
+                    method,
+                    "{http://www.w3.org/2009/xmlenc11#}MGF",
+                )
+                mgf.set("Algorithm", "http://www.w3.org/2009/xmlenc11#mgf1sha256")
 
         for binding, url_key in [(BINDING_POST, "slo_post"), (BINDING_REDIRECT, "slo_redirect")]:
             slo = etree.SubElement(idp_sso, f"{{{NS_MD}}}SingleLogoutService")
@@ -562,32 +889,111 @@ class Metadata:
         xml_str = etree.tostring(ed, pretty_print=False, xml_declaration=True, encoding="UTF-8").decode("utf-8")
         return xml_str
 
-    def generate_federation_xml(self, reviewops_profile=None, metadata_variant=None):
+    def federation_profiles(self, reviewops_profile=None, federation_name=None):
         profile = self.reviewops_profile(reviewops_profile)
-        if not profile:
-            raise ValueError("federation metadata에는 reviewops_profile이 필요합니다.")
+        if federation_name is None:
+            try:
+                federation_name = wiz.request.query("federation", "")
+            except Exception:
+                federation_name = ""
+        federation_name = str(federation_name or "").strip()
+        if profile and federation_name:
+            raise ValueError("reviewops_profile과 federation은 동시에 지정할 수 없습니다.")
+        if profile:
+            return [profile]
+        if federation_name:
+            federation = self.get_federation(federation_name)
+            if federation is None:
+                raise ValueError("Federation 구성을 찾을 수 없습니다.")
+            profiles = [""] if federation["include_base"] else []
+            profiles.extend(federation["profiles"])
+            return profiles
+        profiles = [""]
+        for item in self.list_response_profiles():
+            name = self.reviewops_profile(item.get("name", ""))
+            if name and name not in profiles:
+                profiles.append(name)
+        if len(profiles) > MAX_FEDERATION_ENTITIES:
+            raise ValueError(
+                f"federation metadata는 최대 {MAX_FEDERATION_ENTITIES}개 EntityDescriptor를 포함할 수 있습니다."
+            )
+        return profiles
+
+    def federation_info(self, reviewops_profile=None, federation_name=None):
+        profiles = self.federation_profiles(reviewops_profile, federation_name)
+        lifetime = self._metadata_lifetime()
+        base = self._base_url()
+        selected_profile = self.reviewops_profile(reviewops_profile)
+        endpoint = f"{base}/api/saml/federation-metadata"
+        if selected_profile:
+            endpoint = append_reviewops_profile(endpoint, selected_profile)
+        selected_federation = str(federation_name or "").strip()
+        if selected_federation:
+            selected_federation = self.normalize_federation_name(selected_federation)
+            endpoint = self._federation_url(selected_federation)
+        return {
+            "name": selected_federation or str(self._idp_config_value(
+                "SAML_FEDERATION_NAME", "Debug IdP Federation",
+            )),
+            "federation": selected_federation,
+            "endpoint": endpoint,
+            "entity_count": len(profiles),
+            "entities": [
+                {
+                    "reviewops_profile": profile,
+                    "entity_id": self.entity_id(profile),
+                }
+                for profile in profiles
+            ],
+            "valid_until": lifetime["valid_until_text"],
+            "cache_seconds": lifetime["cache_seconds"],
+            "signature_algorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+            "signing_certificate_sha256": self._certificate_sha256(),
+        }
+
+    def generate_federation_xml(
+        self,
+        reviewops_profile=None,
+        metadata_variant=None,
+        federation_name=None,
+    ):
+        profiles = self.federation_profiles(reviewops_profile, federation_name)
         if metadata_variant is None:
             try:
                 metadata_variant = wiz.request.query("metadata_variant", "standard")
             except Exception:
                 metadata_variant = "standard"
         metadata_variant = str(metadata_variant or "standard")
-        entity = etree.fromstring(
-            self.generate_xml(profile, metadata_variant=metadata_variant).encode("utf-8"),
-            parser=etree.XMLParser(
-                resolve_entities=False,
-                no_network=True,
-                load_dtd=False,
-                huge_tree=False,
-            ),
+        if metadata_variant not in ["standard", "unsigned", "bad_signature"]:
+            raise ValueError("지원하지 않는 metadata_variant입니다.")
+        parser = etree.XMLParser(
+            resolve_entities=False,
+            no_network=True,
+            load_dtd=False,
+            huge_tree=False,
         )
         entities = etree.Element(
             f"{{{NS_MD}}}EntitiesDescriptor",
             nsmap={None: NS_MD, "ds": NS_DS},
         )
-        entities.set("Name", f"reviewops-{profile}")
-        entities.set("ID", f"_federation_{hashlib.sha256(profile.encode()).hexdigest()[:20]}")
-        entities.append(entity)
+        selected_federation = str(federation_name or "").strip()
+        federation_name = (
+            self.normalize_federation_name(selected_federation)
+            if selected_federation else str(self._idp_config_value(
+                "SAML_FEDERATION_NAME", "Debug IdP Federation",
+            ))
+        )
+        lifetime = self._metadata_lifetime()
+        entities.set("Name", federation_name)
+        entities.set("ID", f"_federation_{hashlib.sha256(federation_name.encode()).hexdigest()[:20]}")
+        entities.set("validUntil", lifetime["valid_until_text"])
+        entities.set("cacheDuration", lifetime["cache_duration"])
+        for profile in profiles:
+            entity = etree.fromstring(
+                self.generate_xml(profile, metadata_variant="unsigned").encode("utf-8"),
+                parser=parser,
+            )
+            entities.append(entity)
         try:
             if metadata_variant == "unsigned":
                 raise LookupError("unsigned metadata variant")

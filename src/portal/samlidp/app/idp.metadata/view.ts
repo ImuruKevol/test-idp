@@ -23,6 +23,13 @@ export class Component implements OnInit {
     public attributeValuesText: string = '{}';
     public profileMessage: string = '';
     public metadataVariant: string = 'standard';
+    public federationOptions: any[] = [];
+    public federationName: string = '';
+    public federationIdpCount: number = 3;
+    public federationPreset: string = 'standard';
+    public federationIncludeBase: boolean = true;
+    public federationBusy: boolean = false;
+    public federationResult: any = null;
 
     constructor(public service: Service) { }
 
@@ -42,10 +49,12 @@ export class Component implements OnInit {
             if (res.code === 200) {
                 this.idpInfo = res.data.data || res.data;
                 this.profileOptions = this.idpInfo.profiles || [];
+                this.federationOptions = this.idpInfo.federations || [];
             }
         } catch (e) {
             this.idpInfo = null;
             this.profileOptions = [];
+            this.federationOptions = [];
         }
         try {
             const xmlRes = await wiz.call("metadata_xml", {
@@ -272,5 +281,66 @@ export class Component implements OnInit {
             this.metadataXml = res.data.data || res.data?.xml || '';
             await this.service.render();
         }
+    }
+
+    public async createFederation() {
+        const name = String(this.federationName || '').trim();
+        const count = Number(this.federationIdpCount || 0);
+        if (!/^[a-z0-9-]{1,57}$/.test(name)) {
+            await this.service.modal.error('Federation 이름은 영문 소문자, 숫자, 하이픈만 사용해 1~57자로 입력해주세요.');
+            return;
+        }
+        if (!Number.isInteger(count) || count < 1 || count > 20) {
+            await this.service.modal.error('IdP 개수는 1~20 사이 정수여야 합니다.');
+            return;
+        }
+        this.federationBusy = true;
+        this.federationResult = null;
+        await this.service.render();
+        try {
+            const res = await wiz.call('federation_create', {
+                name,
+                count: String(count),
+                include_base: this.federationIncludeBase ? 'true' : 'false',
+                preset: this.federationPreset,
+            });
+            if (res.code !== 200) {
+                await this.service.modal.error(res.data?.message || 'Federation 구성에 실패했습니다.');
+            } else {
+                this.federationResult = res.data?.data || res.data;
+                await this.loadInfo();
+                await this.service.modal.success(`${count}개 IdP를 Federation으로 구성했습니다.`);
+            }
+        } catch (e: any) {
+            await this.service.modal.error(e.message || 'Federation 구성에 실패했습니다.');
+        }
+        this.federationBusy = false;
+        await this.service.render();
+    }
+
+    public async deleteFederation(item: any) {
+        const name = String(item?.name || '').trim();
+        if (!name) return;
+        const confirmed = await this.service.modal.error(
+            `'${name}' Federation 묶음만 삭제할까요? 생성된 IdP 실행 설정은 유지됩니다.`,
+            '취소',
+            '묶음 삭제',
+        );
+        if (!confirmed) return;
+        this.federationBusy = true;
+        await this.service.render();
+        try {
+            const res = await wiz.call('federation_delete', { name });
+            if (res.code !== 200) {
+                await this.service.modal.error(res.data?.message || 'Federation 삭제에 실패했습니다.');
+            } else {
+                if (this.federationResult?.name === name) this.federationResult = null;
+                await this.loadInfo();
+            }
+        } catch (e: any) {
+            await this.service.modal.error(e.message || 'Federation 삭제에 실패했습니다.');
+        }
+        this.federationBusy = false;
+        await this.service.render();
     }
 }

@@ -360,6 +360,7 @@ def _build_authorize_prompt_html(params, error_message=""):
 		redirect_uri = (client.get("redirect_uris") or [""])[0]
 	scope_text = str(params.get("scope", "openid")).strip() or "openid"
 	response_type = str(params.get("response_type", "code")).strip() or "code"
+	consent_requested = "consent" in str(params.get("prompt", "")).split()
 
 	try:
 		users = struct.core.user.list_active()
@@ -374,13 +375,17 @@ def _build_authorize_prompt_html(params, error_message=""):
 		username = str(user.get("username", "")).strip()
 		email_value = str(user.get("email", "")).strip()
 		role = str(user.get("role", "tester")).strip() or "tester"
-		authorize_href = _authorize_href(params, {"selected_user_id": user.get("id", "")})
+		extra = {"selected_user_id": user.get("id", "")}
+		if consent_requested:
+			extra["consent_decision"] = "approve"
+		authorize_href = _authorize_href(params, extra)
 		cards.append(f"""
 			<div class=\"account-card\">
 				<a href=\"{html.escape(authorize_href, quote=True)}\" target=\"_top\" class=\"account-button\">
 					<span class=\"account-name\">{html.escape(display_name)}</span>
 					<span class=\"account-meta\">{html.escape(username)}{(' · ' + html.escape(email_value)) if email_value else ''}</span>
 					<span class=\"account-role\">{html.escape(role)}</span>
+					{'<span class="account-role">선택하고 동의</span>' if consent_requested else ''}
 				</a>
 			</div>
 		""")
@@ -392,6 +397,18 @@ def _build_authorize_prompt_html(params, error_message=""):
 	empty_block = ""
 	if len(cards) == 0:
 		empty_block = '<div class="notice">선택 가능한 활성 테스트 계정이 없습니다. 아래 폼으로 관리자 로그인을 진행하세요.</div>'
+
+	heading = "요청한 권한을 확인하고 테스트 계정을 선택하세요." if consent_requested else "등록된 서비스 로그인을 계속하려면 테스트 계정을 선택하세요."
+	summary = (
+		"아래 계정을 선택하면 표시된 scope를 이 RP에 제공하는 데 명시적으로 동의합니다. 거부하면 RP에 access_denied 오류를 반환합니다."
+		if consent_requested else
+		"현재 authorize 요청은 로그인 세션이 없는 상태입니다. 빠른 계정 선택으로 바로 진행하거나, 관리자 계정으로 로그인한 뒤 같은 authorize 요청을 이어서 처리할 수 있습니다."
+	)
+	deny_block = ""
+	if consent_requested:
+		deny_href = _authorize_href(params, {"consent_decision": "deny"})
+		deny_block = f'<a href="{html.escape(deny_href, quote=True)}" class="account-button" style="margin-top:12px;text-align:center;color:var(--warn)">권한 제공 거부</a>'
+	form_extra = {"consent_decision": "approve"} if consent_requested else None
 
 	return f"""<!DOCTYPE html>
 <html lang=\"ko\">
@@ -477,8 +494,8 @@ def _build_authorize_prompt_html(params, error_message=""):
 	<div class=\"shell\">
 		<section class=\"panel hero\">
 			<p class=\"eyebrow\">OIDC Authorization</p>
-			<h1>등록된 서비스 로그인을 계속하려면 테스트 계정을 선택하세요.</h1>
-			<p class=\"summary\">현재 authorize 요청은 로그인 세션이 없는 상태입니다. 빠른 계정 선택으로 바로 진행하거나, 관리자 계정으로 로그인한 뒤 같은 authorize 요청을 이어서 처리할 수 있습니다.</p>
+			<h1>{html.escape(heading)}</h1>
+			<p class=\"summary\">{html.escape(summary)}</p>
 			<div class=\"meta-grid\">
 				<div class=\"meta\">
 					<p class=\"meta-label\">Client</p>
@@ -497,14 +514,15 @@ def _build_authorize_prompt_html(params, error_message=""):
 
 		<section class=\"panel auth\">
 			{error_block}
-			<div class=\"section-title\">빠른 테스트 계정 선택</div>
+			<div class=\"section-title\">{'동의할 테스트 계정 선택' if consent_requested else '빠른 테스트 계정 선택'}</div>
 			{empty_block}
 			<div class=\"account-grid\">{''.join(cards)}</div>
+			{deny_block}
 
 			<div class=\"form-shell\">
 				<div class=\"section-title\">관리자 계정 로그인</div>
 				<form method=\"post\" action=\"/api/oidc/authorize\" class=\"form-grid\">
-					{_hidden_authorize_inputs(params)}
+					{_hidden_authorize_inputs(params, form_extra)}
 					<div>
 						<label class=\"label\" for=\"login_id\">사용자명 또는 이메일</label>
 						<input id=\"login_id\" class=\"input\" type=\"text\" name=\"login_id\" placeholder=\"admin\" autocomplete=\"username\"/>
@@ -513,7 +531,7 @@ def _build_authorize_prompt_html(params, error_message=""):
 						<label class=\"label\" for=\"password\">비밀번호</label>
 						<input id=\"password\" class=\"input\" type=\"password\" name=\"password\" placeholder=\"비밀번호\" autocomplete=\"current-password\"/>
 					</div>
-					<button type=\"submit\" class=\"submit\">로그인 후 authorize 계속</button>
+					<button type=\"submit\" class=\"submit\">{'로그인하고 권한 제공 동의' if consent_requested else '로그인 후 authorize 계속'}</button>
 				</form>
 				<p class=\"help\">보안 정책상 비밀번호 로그인은 관리자 계정만 허용합니다. 일반 테스트 계정은 위의 빠른 선택 카드로 authorize 흐름을 이어서 검증하세요.</p>
 			</div>
@@ -649,6 +667,9 @@ if action == "authorize":
 			"error_description": str(e),
 		}, status=400)
 	prompt_values = str(params.get("prompt", "")).split()
+	if "consent" in prompt_values and str(wiz.request.query("consent_decision", "")).strip() == "deny":
+		if _send_authorize_error(params, "access_denied", "사용자가 권한 제공을 거부했습니다."):
+			wiz.response.status(500, message="authorize 거부 redirect가 종료되지 않았습니다.")
 	needs_interaction = False
 	if not params.get("user_id"):
 		user = _current_user()
@@ -657,7 +678,10 @@ if action == "authorize":
 				oidc_auth_time=datetime.datetime.now(datetime.timezone.utc).isoformat(),
 				oidc_sid=f"sid-{uuid.uuid4().hex}",
 			)
-		needs_interaction = "login" in prompt_values or "select_account" in prompt_values
+		needs_interaction = any(
+			value in prompt_values
+			for value in ["login", "select_account", "consent"]
+		)
 		max_age = str(params.get("max_age", "")).strip()
 		if user is not None and max_age:
 			try:
@@ -690,12 +714,14 @@ if action == "authorize":
 	try:
 		result = struct.flow.authorize(params)
 	except Exception as e:
-		if "none" in prompt_values and hasattr(e, "error"):
-			_send_authorize_error(
+		if hasattr(e, "error"):
+			error_sent = _send_authorize_error(
 				params,
 				getattr(e, "error", "invalid_request"),
 				getattr(e, "description", str(e)),
 			)
+			if error_sent:
+				wiz.response.status(500, message="authorize 오류 redirect가 종료되지 않았습니다.")
 		if getattr(e, "error", "") == "login_required" and "none" not in prompt_values:
 			_html_response(
 				_build_authorize_prompt_html(params, error_message=getattr(e, "description", str(e))),

@@ -1,7 +1,11 @@
 import json
 import datetime
+import base64
 from lxml import etree
 from signxml import XMLVerifier
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 NS = {
     "md": "urn:oasis:names:tc:SAML:2.0:metadata",
@@ -215,9 +219,23 @@ class Registry:
         except etree.XMLSyntaxError as e:
             raise Exception(f"XML 문법 오류: {str(e)}")
 
-        ed = root if root.tag == f"{{{NS['md']}}}EntityDescriptor" else root.find(".//md:EntityDescriptor", NS)
-        if ed is None:
-            raise Exception("EntityDescriptor 요소를 찾을 수 없습니다.")
+        ids = [str(item.get("ID")) for item in root.iter() if item.get("ID")]
+        if len(ids) != len(set(ids)):
+            raise Exception("SP metadata XML에 중복 ID가 있습니다.")
+
+        if root.tag == f"{{{NS['md']}}}EntityDescriptor":
+            candidates = [root]
+        elif root.tag == f"{{{NS['md']}}}EntitiesDescriptor":
+            candidates = root.findall(".//md:EntityDescriptor", NS)
+        else:
+            raise Exception("SAML metadata의 루트는 EntityDescriptor 또는 EntitiesDescriptor여야 합니다.")
+        sp_candidates = [
+            item for item in candidates
+            if item.find("md:SPSSODescriptor", NS) is not None
+        ]
+        if len(sp_candidates) != 1:
+            raise Exception("SP 등록 metadata에는 SPSSODescriptor를 가진 EntityDescriptor가 정확히 하나 필요합니다.")
+        ed = sp_candidates[0]
 
         entity_id = ed.get("entityID")
         if not entity_id:
@@ -226,20 +244,73 @@ class Registry:
         sp_sso = ed.find(".//md:SPSSODescriptor", NS)
         if sp_sso is None:
             raise Exception("SPSSODescriptor 요소를 찾을 수 없습니다.")
+        supported_protocols = str(
+            sp_sso.get("protocolSupportEnumeration", "")
+        ).split()
+        if "urn:oasis:names:tc:SAML:2.0:protocol" not in supported_protocols:
+            raise Exception("SPSSODescriptor가 SAML 2.0 protocol을 지원하지 않습니다.")
+
+        validity_sources = [ed]
+        validity_sources.extend(
+            ancestor
+            for ancestor in ed.iterancestors()
+            if ancestor.tag == f"{{{NS['md']}}}EntitiesDescriptor"
+        )
+        validity_values = [
+            item.get("validUntil") for item in validity_sources
+            if item.get("validUntil")
+        ]
+        validity_deadlines = []
+        for value in validity_values:
+            try:
+                deadline = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if deadline.tzinfo is None:
+                    deadline = deadline.replace(tzinfo=datetime.timezone.utc)
+                validity_deadlines.append(deadline.astimezone(datetime.timezone.utc))
+            except Exception:
+                raise Exception("SP metadata validUntil 형식이 올바르지 않습니다.")
+        metadata_valid_until = min(validity_deadlines) if validity_deadlines else None
+        if metadata_valid_until is not None and metadata_valid_until <= datetime.datetime.now(datetime.timezone.utc):
+            raise Exception("만료된 SP metadata는 등록할 수 없습니다.")
 
         acs_endpoints = []
+        acs_indexes = set()
+        acs_warnings = []
         for acs in sp_sso.findall("md:AssertionConsumerService", NS):
             location = str(acs.get("Location", ""))
             if not location.startswith(("https://", "http://")):
                 raise Exception("AssertionConsumerService Location은 http 또는 https 절대 URL이어야 합니다.")
+            binding = str(acs.get("Binding", ""))
+            index = str(acs.get("index", ""))
+            try:
+                index_number = int(index)
+                if index_number < 0 or index_number > 65535:
+                    raise ValueError()
+            except ValueError:
+                raise Exception("AssertionConsumerService index는 0~65535 정수여야 합니다.")
+            if index_number in acs_indexes:
+                raise Exception("AssertionConsumerService index는 중복될 수 없습니다.")
+            acs_indexes.add(index_number)
+            is_default = str(acs.get("isDefault", "false"))
+            if is_default.lower() not in ["true", "false", "1", "0"]:
+                raise Exception("AssertionConsumerService isDefault는 boolean 값이어야 합니다.")
+            if binding != "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST":
+                acs_warnings.append(
+                    "HTTP-POST가 아닌 AssertionConsumerService는 호환 정보로만 보관됩니다."
+                )
             acs_endpoints.append({
-                "binding": acs.get("Binding", ""),
+                "binding": binding,
                 "location": location,
-                "index": acs.get("index", "0"),
-                "is_default": acs.get("isDefault", "false"),
+                "index": str(index_number),
+                "is_default": is_default,
             })
         if not acs_endpoints:
             raise Exception("AssertionConsumerService가 하나도 없습니다.")
+        if not any(
+            item["binding"] == "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+            for item in acs_endpoints
+        ):
+            raise Exception("HTTP-POST AssertionConsumerService가 하나 이상 필요합니다.")
 
         slo_endpoints = []
         slo_warnings = []
@@ -266,17 +337,60 @@ class Registry:
             if nf.text:
                 nameid_formats.append(nf.text.strip())
 
-        certificates = {"signing": [], "encryption": [], "encryption_methods": []}
+        certificates = {
+            "signing": [],
+            "encryption": [],
+            "encryption_methods": [],
+            "details": [],
+        }
+        certificate_warnings = []
         for kd in sp_sso.findall("md:KeyDescriptor", NS):
             use = kd.get("use", "")
-            cert_el = kd.find(".//ds:X509Certificate", NS)
-            if cert_el is not None and cert_el.text:
-                cert_text = cert_el.text.strip()
-                if use in certificates:
-                    certificates[use].append(cert_text)
-                else:
-                    certificates["signing"].append(cert_text)
-                    certificates["encryption"].append(cert_text)
+            if use not in ["", "signing", "encryption"]:
+                raise Exception("KeyDescriptor use는 signing 또는 encryption이어야 합니다.")
+            roles = [use] if use else ["signing", "encryption"]
+            if not use:
+                certificate_warnings.append(
+                    "use가 없는 KeyDescriptor는 signing과 encryption 양쪽 키로 해석됩니다. 키 분리를 권장합니다."
+                )
+            cert_elements = kd.findall(".//ds:X509Certificate", NS)
+            for cert_el in cert_elements:
+                if not cert_el.text:
+                    continue
+                cert_text = "".join(cert_el.text.split())
+                try:
+                    certificate = x509.load_der_x509_certificate(
+                        base64.b64decode(cert_text, validate=True)
+                    )
+                except Exception:
+                    certificate_warnings.append("읽을 수 없는 X.509 인증서는 사용하지 않습니다.")
+                    continue
+                public_key = certificate.public_key()
+                fingerprint = certificate.fingerprint(hashes.SHA256()).hex().upper()
+                accepted_roles = []
+                for role in roles:
+                    if role == "encryption" and not isinstance(public_key, rsa.RSAPublicKey):
+                        certificate_warnings.append(
+                            "RSA가 아닌 encryption 인증서는 현재 RSA-OAEP Assertion 암호화에 사용할 수 없습니다."
+                        )
+                        continue
+                    if cert_text not in certificates[role]:
+                        certificates[role].append(cert_text)
+                    accepted_roles.append(role)
+                key_size = int(getattr(public_key, "key_size", 0) or 0)
+                if key_size and key_size < 2048:
+                    certificate_warnings.append(
+                        f"{key_size}-bit 인증서 키는 호환 시험용이며 2048-bit 이상을 권장합니다."
+                    )
+                certificates["details"].append({
+                    "use": use or "both",
+                    "accepted_roles": accepted_roles,
+                    "sha256": fingerprint,
+                    "subject": certificate.subject.rfc4514_string(),
+                    "serial_number": format(certificate.serial_number, "X"),
+                    "public_key_type": public_key.__class__.__name__,
+                    "key_size": key_size,
+                })
             if use in ["", "encryption"]:
                 for method in kd.findall("md:EncryptionMethod", NS):
                     algorithm = str(method.get("Algorithm", "")).strip()
@@ -294,22 +408,31 @@ class Registry:
                     "friendly_name": ra.get("FriendlyName", ""),
                 })
 
+        signature_parent = None
+        signature_scope = ""
+        for candidate in [ed] + list(ed.iterancestors()):
+            if candidate.find("ds:Signature", NS) is not None:
+                signature_parent = candidate
+                signature_scope = "entity" if candidate is ed else "aggregate"
+                break
         flags = {
             "authn_requests_signed": sp_sso.get("AuthnRequestsSigned", "false"),
             "want_assertions_signed": sp_sso.get("WantAssertionsSigned", "false"),
             "has_signing_cert": len(certificates["signing"]) > 0,
             "has_encryption_cert": len(certificates["encryption"]) > 0,
             "has_slo": len(slo_endpoints) > 0,
-            "metadata_signature_present": ed.find("ds:Signature", NS) is not None,
+            "metadata_signature_present": signature_parent is not None,
+            "metadata_signature_scope": signature_scope,
+            "metadata_valid_until": metadata_valid_until.isoformat() if metadata_valid_until is not None else "",
         }
 
         flags["metadata_signature_valid"] = False
         if flags["metadata_signature_present"]:
-            signature_cert = ed.find("ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate", NS)
+            signature_cert = signature_parent.find("ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate", NS)
             if signature_cert is not None and signature_cert.text:
                 cert_pem = "-----BEGIN CERTIFICATE-----\n" + "".join(signature_cert.text.split()) + "\n-----END CERTIFICATE-----\n"
                 try:
-                    XMLVerifier().verify(ed, x509_cert=cert_pem, id_attribute="ID")
+                    XMLVerifier().verify(signature_parent, x509_cert=cert_pem, id_attribute="ID")
                     flags["metadata_signature_valid"] = True
                 except Exception:
                     pass
@@ -320,6 +443,10 @@ class Registry:
         if not flags["has_slo"]:
             warnings.append("SP 메타데이터에 SingleLogoutService가 없습니다.")
         warnings.extend(slo_warnings)
+        warnings.extend(acs_warnings)
+        warnings.extend(certificate_warnings)
+        if set(certificates["signing"]).intersection(certificates["encryption"]):
+            warnings.append("동일 공개키를 signing과 encryption에 함께 사용하고 있습니다. 키 분리를 권장합니다.")
         if not flags["has_encryption_cert"]:
             warnings.append("SP 메타데이터에 암호화 인증서가 없습니다.")
         if not flags["metadata_signature_present"]:

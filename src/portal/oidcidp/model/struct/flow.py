@@ -126,6 +126,7 @@ class Flow:
                 "response_variant": "standard",
                 "time_offset_seconds": 0,
                 "token_ttl_seconds": 600,
+                "refresh_token_ttl_seconds": 2592000,
                 "session_ttl_seconds": 28800,
                 "acr": "",
                 "amr": ["pwd"],
@@ -429,6 +430,21 @@ class Flow:
         code_challenge = str(params.get("code_challenge", "")).strip()
         code_challenge_method = str(params.get("code_challenge_method", "S256")).strip() or "S256"
 
+        requested_scope_values = self._preview()._normalize_scope(scope_text)
+        if "offline_access" in requested_scope_values:
+            if "refresh_token" not in (client.get("grant_types") or []):
+                raise OIDCFlowError(
+                    "invalid_scope",
+                    "offline_access scope에는 refresh_token grant 등록이 필요합니다.",
+                    400,
+                )
+            if "consent" not in prompt_values:
+                raise OIDCFlowError(
+                    "consent_required",
+                    "offline_access scope에는 prompt=consent가 필요합니다.",
+                    400,
+                )
+
         if code_challenge and code_challenge_method not in ["S256", "plain"]:
             raise OIDCFlowError("invalid_request", "지원하지 않는 code_challenge_method입니다.", 400)
         if client.get("token_endpoint_auth_method") == "none" and code_challenge == "":
@@ -523,7 +539,8 @@ class Flow:
                 "client": self._safe_client(client),
                 "user": self._safe_user(user),
                 "consent": {
-                    "auto_approved": True,
+                    "auto_approved": "consent" not in prompt_values,
+                    "explicit": "consent" in prompt_values,
                     "requested_scopes": release["requested_scopes"],
                     "requested_claims": release["requested_claims"],
                     "released_claims": list(release["released_claims"].keys()),
@@ -598,7 +615,8 @@ class Flow:
                 "email": user.get("email", ""),
             },
             "consent": {
-                "auto_approved": True,
+                "auto_approved": "consent" not in prompt_values,
+                "explicit": "consent" in prompt_values,
                 "requested_scopes": release["requested_scopes"],
                 "requested_claims": release["requested_claims"],
                 "released_claims": list(release["released_claims"].keys()),
@@ -977,13 +995,216 @@ class Flow:
             userinfo["name"] = user.get("display_name", user.get("username", ""))
         return userinfo
 
+    def _revoke_refresh_descendants(self, parent_jti, revoked_at=None):
+        """Consume every issued descendant after refresh-token reuse is detected."""
+        parent_jti = str(parent_jti or "").strip()
+        if not parent_jti:
+            return 0
+        revoked_at = revoked_at or self._now()
+        database = self._token_db()
+        pending = [parent_jti]
+        visited = set()
+        revoked = 0
+        while pending and len(visited) < 100:
+            current = pending.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            for child in database.rows(refresh_token_parent_jti=current):
+                child_jti = str(child.get("refresh_token_jti", "")).strip()
+                if self._parse_datetime(child.get("refresh_token_consumed")) is None:
+                    database.update(
+                        {"refresh_token_consumed": revoked_at},
+                        id=child.get("id"),
+                        refresh_token_consumed=None,
+                    )
+                    revoked += 1
+                if child_jti:
+                    pending.append(child_jti)
+        return revoked
+
+    def _refresh_token_grant(self, request_data, client, used_method):
+        refresh_token = str(request_data.get("refresh_token", "")).strip()
+        if not refresh_token:
+            raise OIDCFlowError("invalid_grant", "refresh_token이 필요합니다.", 400)
+        if "refresh_token" not in (client.get("grant_types") or []):
+            raise OIDCFlowError("unauthorized_client", "이 RP는 refresh_token grant를 허용하지 않습니다.", 400)
+
+        provider = self.struct.provider
+        profile_name = self._active_reviewops_profile()
+        try:
+            decoded = provider.verify_jwt(
+                refresh_token,
+                allowed_algs=["RS256"],
+                expected_issuer=provider.issuer(profile_name),
+            )
+        except Exception:
+            raise OIDCFlowError("invalid_grant", "refresh token signature 또는 유효 시간이 올바르지 않습니다.", 400)
+
+        payload = decoded.get("payload", {}) if isinstance(decoded, dict) else {}
+        audience = payload.get("aud", [])
+        audiences = audience if isinstance(audience, list) else [audience]
+        if payload.get("token_use") != "refresh_token" or client.get("client_id") not in audiences:
+            raise OIDCFlowError("invalid_grant", "다른 용도 또는 RP의 refresh token입니다.", 400)
+
+        refresh_jti = str(payload.get("jti", "")).strip()
+        if not refresh_jti:
+            raise OIDCFlowError("invalid_grant", "refresh token jti가 없습니다.", 400)
+        row = self._token_db().get(refresh_token_jti=refresh_jti)
+        if row is None or row.get("client_id") != client.get("client_id"):
+            raise OIDCFlowError("invalid_grant", "등록되지 않은 refresh token입니다.", 400)
+        if self._parse_datetime(row.get("refresh_token_consumed")) is not None:
+            self._revoke_refresh_descendants(refresh_jti)
+            raise OIDCFlowError("invalid_grant", "이미 사용된 refresh token입니다.", 400)
+        refresh_expires = self._parse_datetime(row.get("refresh_token_expires"))
+        if refresh_expires is not None and refresh_expires <= self._now():
+            raise OIDCFlowError("invalid_grant", "만료된 refresh token입니다.", 400)
+
+        original_scopes = [item for item in str(payload.get("scope", "")).split() if item]
+        requested_scope = str(request_data.get("scope", "")).strip()
+        requested_scopes = [item for item in requested_scope.split() if item] if requested_scope else original_scopes
+        if not requested_scopes or not set(requested_scopes).issubset(set(original_scopes)):
+            raise OIDCFlowError("invalid_scope", "refresh 요청 scope는 최초 scope의 일부여야 합니다.", 400)
+        scope = " ".join(requested_scopes)
+
+        user = self.struct.core.user.get(id=row.get("user_id", ""))
+        if user is None or self.struct.core.user.is_expired(user):
+            raise OIDCFlowError("invalid_grant", "refresh token에 연결된 사용자를 찾을 수 없거나 만료되었습니다.", 400)
+
+        # Claim the token before issuing its replacement. Including the NULL
+        # predicate makes concurrent exchanges a compare-and-set operation.
+        consumed_at = self._now()
+        self._token_db().update(
+            {"refresh_token_consumed": consumed_at},
+            id=row.get("id"),
+            refresh_token_consumed=None,
+        )
+        claimed = self._token_db().get(id=row.get("id"))
+        claimed_at = self._parse_datetime((claimed or {}).get("refresh_token_consumed"))
+        if claimed_at != consumed_at:
+            self._revoke_refresh_descendants(refresh_jti, revoked_at=consumed_at)
+            raise OIDCFlowError("invalid_grant", "이미 사용된 refresh token입니다.", 400)
+
+        previous_raw = self._normalize_object(row.get("raw_response"), {})
+        userinfo = self._normalize_object(previous_raw.get("userinfo"), {})
+        subject = str(payload.get("sub", "")).strip()
+        if not subject:
+            raise OIDCFlowError("invalid_grant", "refresh token subject가 없습니다.", 400)
+        if not userinfo:
+            userinfo = self._build_userinfo(user, {"sub": subject})
+        userinfo["sub"] = subject
+
+        settings = self._profile_settings(profile_name)
+        access_issued = provider.issue_access_token(
+            client.get("client_id", ""),
+            subject,
+            scope=scope,
+            extra_claims={
+                "client_id": client.get("client_id", ""),
+                "username": user.get("username", ""),
+                "claims": userinfo,
+            },
+            time_offset_seconds=settings.get("time_offset_seconds", 0),
+            reviewops_profile=profile_name,
+        )
+        previous_id_token = self._normalize_object(previous_raw.get("id_token_payload"), {})
+        id_token_claims = {
+            key: value
+            for key, value in userinfo.items()
+            if key not in {"sub", "iss", "aud", "exp", "iat", "auth_time", "jti", "sid", "nonce", "at_hash"}
+        }
+        signing_alg = str(settings.get("id_token_signing_alg", "RS256"))
+        if signing_alg == "HS256" and client.get("token_endpoint_auth_method") == "none":
+            raise OIDCFlowError("invalid_request", "Public Client에는 HS256 ID Token을 발급할 수 없습니다.", 400)
+        id_issued = provider.issue_id_token(
+            client.get("client_id", ""),
+            subject,
+            extra_claims=id_token_claims,
+            ttl_seconds=settings.get("token_ttl_seconds", 600),
+            auth_time=previous_id_token.get("auth_time"),
+            sid=str(previous_id_token.get("sid", "")),
+            acr=str(previous_id_token.get("acr", "") or settings.get("acr", "")),
+            amr=previous_id_token.get("amr") or settings.get("amr", ["pwd"]),
+            access_token=access_issued["token"],
+            signing_alg=signing_alg,
+            signing_secret=client.get("client_secret", ""),
+            response_variant=settings.get("response_variant", "standard"),
+            time_offset_seconds=settings.get("time_offset_seconds", 0),
+            reviewops_profile=profile_name,
+        )
+        refresh_issued = provider.issue_refresh_token(
+            client.get("client_id", ""),
+            subject,
+            scope=scope,
+            ttl_seconds=settings.get("refresh_token_ttl_seconds", 2592000),
+            parent_jti=refresh_jti,
+            reviewops_profile=profile_name,
+        )
+
+        token_response = {
+            "access_token": access_issued["token"],
+            "id_token": id_issued["token"],
+            "refresh_token": refresh_issued["token"],
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": scope,
+        }
+        now = self._now()
+        self._token_db().insert({
+            "client_id": client.get("client_id", ""),
+            "user_id": user.get("id", ""),
+            "grant_type": "refresh_token",
+            "access_token_jti": access_issued["payload"].get("jti", ""),
+            "id_token_jti": id_issued["payload"].get("jti", ""),
+            "refresh_token_jti": refresh_issued["payload"].get("jti", ""),
+            "refresh_token_parent_jti": refresh_jti,
+            "refresh_token_expires": datetime.datetime.fromtimestamp(
+                int(refresh_issued["payload"]["exp"]), datetime.timezone.utc
+            ).replace(tzinfo=None),
+            "refresh_token_consumed": None,
+            "debug_key": row.get("debug_key", ""),
+            "raw_request": self._mask_value({
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client.get("client_id", ""),
+                "client_auth_method": used_method,
+                "scope": scope,
+            }),
+            "raw_response": {
+                "token_response": self._mask_value(token_response),
+                "access_token_payload": access_issued["payload"],
+                "id_token_payload": id_issued["payload"],
+                "userinfo": userinfo,
+            },
+            "created": now,
+        })
+        return {
+            "request": {
+                "grant_type": "refresh_token",
+                "client_id": client.get("client_id", ""),
+                "client_auth_method": used_method,
+                "scope": scope,
+            },
+            "token_response": token_response,
+            "id_token": id_issued["token"],
+            "id_token_payload": id_issued["payload"],
+            "access_token_payload": access_issued["payload"],
+            "userinfo": userinfo,
+            "debug_key": row.get("debug_key", ""),
+        }
+
     def token(self, request_data, auth_header=""):
         request_data = dict(request_data or {})
         grant_type = str(request_data.get("grant_type", "authorization_code")).strip() or "authorization_code"
-        if grant_type != "authorization_code":
-            raise OIDCFlowError("unsupported_grant_type", "authorization_code grant만 지원합니다.", 400)
-
         client, used_method = self._authenticate_client(request_data, auth_header=auth_header)
+        if grant_type == "refresh_token":
+            return self._refresh_token_grant(request_data, client, used_method)
+        if grant_type != "authorization_code":
+            raise OIDCFlowError(
+                "unsupported_grant_type",
+                "authorization_code와 refresh_token grant만 지원합니다.",
+                400,
+            )
         code_value = str(request_data.get("code", "")).strip()
         redirect_uri = str(request_data.get("redirect_uri", "")).strip()
         code_verifier = str(request_data.get("code_verifier", "")).strip()
@@ -1075,6 +1296,19 @@ class Flow:
         userinfo = self._build_userinfo(user, userinfo_claims)
         userinfo["sub"] = subject
 
+        refresh_issued = None
+        if (
+            "offline_access" in scope.split()
+            and "refresh_token" in (client.get("grant_types") or [])
+        ):
+            refresh_issued = provider.issue_refresh_token(
+                client.get("client_id", ""),
+                subject,
+                scope=scope,
+                ttl_seconds=settings.get("refresh_token_ttl_seconds", 2592000),
+                reviewops_profile=profile_name,
+            )
+
         token_response = {
             "access_token": access_issued["token"],
             "id_token": id_issued["token"],
@@ -1082,6 +1316,8 @@ class Flow:
             "expires_in": 3600,
             "scope": scope,
         }
+        if refresh_issued is not None:
+            token_response["refresh_token"] = refresh_issued["token"]
         request_view = {
             "grant_type": grant_type,
             "code": code_value,
@@ -1101,6 +1337,18 @@ class Flow:
             "grant_type": grant_type,
             "access_token_jti": access_issued["payload"].get("jti", ""),
             "id_token_jti": id_issued["payload"].get("jti", ""),
+            "refresh_token_jti": (
+                refresh_issued["payload"].get("jti", "")
+                if refresh_issued is not None else ""
+            ),
+            "refresh_token_parent_jti": "",
+            "refresh_token_expires": (
+                datetime.datetime.fromtimestamp(
+                    int(refresh_issued["payload"]["exp"]), datetime.timezone.utc
+                ).replace(tzinfo=None)
+                if refresh_issued is not None else None
+            ),
+            "refresh_token_consumed": None,
             "debug_key": code_row.get("debug_key", ""),
             "raw_request": self._mask_value(request_view),
             "raw_response": {

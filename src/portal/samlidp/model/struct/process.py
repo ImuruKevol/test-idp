@@ -10,9 +10,9 @@ from urllib.parse import unquote
 from lxml import etree
 from signxml import XMLSigner, XMLVerifier, methods
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives import padding as symmetric_padding
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.decrepit.ciphers import algorithms as decrepit_algorithms
@@ -85,7 +85,12 @@ class Process:
             return []
         return list(certificates.get("signing", []) or [])
 
-    def _sp_encryption_certificate(self, issuer, content_algorithm=""):
+    def _sp_encryption_certificate(
+        self,
+        issuer,
+        content_algorithm="",
+        key_transport_algorithm="",
+    ):
         sp = self.struct.registry.get(entity_id=issuer)
         if not sp:
             raise Exception("등록된 SP를 찾을 수 없습니다.")
@@ -96,13 +101,27 @@ class Process:
         if not candidates:
             raise Exception("SP 메타데이터에 encryption 인증서가 없습니다.")
         advertised = list((certificates or {}).get("encryption_methods", []) or [])
-        if advertised and content_algorithm and content_algorithm not in advertised:
+        content_methods = {
+            value for value in advertised
+            if value in {item[0] for item in CONTENT_ENCRYPTION_ALGORITHMS.values()}
+        }
+        transport_methods = {
+            value for value in advertised
+            if value in set(KEY_TRANSPORT_ALGORITHMS.values())
+        }
+        if content_methods and content_algorithm not in content_methods:
             raise Exception("선택한 content encryption algorithm이 SP 메타데이터 허용 목록에 없습니다.")
-        body = "".join(str(candidates[0]).split())
-        try:
-            return x509.load_der_x509_certificate(base64.b64decode(body)), body
-        except Exception:
-            raise Exception("SP encryption 인증서를 읽을 수 없습니다.")
+        if transport_methods and key_transport_algorithm not in transport_methods:
+            raise Exception("선택한 key transport algorithm이 SP 메타데이터 허용 목록에 없습니다.")
+        for candidate in candidates:
+            body = "".join(str(candidate).split())
+            try:
+                certificate = x509.load_der_x509_certificate(base64.b64decode(body))
+                if isinstance(certificate.public_key(), rsa.RSAPublicKey):
+                    return certificate, body
+            except Exception:
+                continue
+        raise Exception("RSA SP encryption 인증서를 읽을 수 없습니다.")
 
     def _encrypt_assertion(self, assertion, sp_entity_id, content_algorithm, key_transport):
         if content_algorithm not in CONTENT_ENCRYPTION_ALGORITHMS:
@@ -110,7 +129,11 @@ class Process:
         if key_transport not in KEY_TRANSPORT_ALGORITHMS:
             raise Exception("지원하지 않는 Assertion key transport algorithm입니다.")
         algorithm_uri, key_size, mode_name = CONTENT_ENCRYPTION_ALGORITHMS[content_algorithm]
-        certificate, certificate_body = self._sp_encryption_certificate(sp_entity_id, algorithm_uri)
+        certificate, certificate_body = self._sp_encryption_certificate(
+            sp_entity_id,
+            algorithm_uri,
+            KEY_TRANSPORT_ALGORITHMS[key_transport],
+        )
         public_key = certificate.public_key()
         key = os.urandom(key_size)
         plaintext = etree.tostring(assertion, pretty_print=False, encoding="UTF-8")
@@ -175,6 +198,127 @@ class Process:
         cipher_value = etree.SubElement(cipher_data, f"{{{NS['xenc']}}}CipherValue")
         cipher_value.text = base64.b64encode(encrypted_payload).decode("ascii")
         return encrypted_assertion
+
+    def _decrypt_encrypted_id(self, encrypted_id):
+        """Decrypt an inbound SAML EncryptedID using the IdP encryption key."""
+        try:
+            encrypted_data = encrypted_id.find("xenc:EncryptedData", NS)
+            if encrypted_data is None:
+                raise ValueError("EncryptedData missing")
+            content_method = encrypted_data.find("xenc:EncryptionMethod", NS)
+            content_algorithm = str(
+                content_method.get("Algorithm", "")
+                if content_method is not None else ""
+            )
+            content_options = {
+                "http://www.w3.org/2009/xmlenc11#aes128-gcm": 16,
+                "http://www.w3.org/2009/xmlenc11#aes192-gcm": 24,
+                "http://www.w3.org/2009/xmlenc11#aes256-gcm": 32,
+            }
+            if content_algorithm not in content_options:
+                raise ValueError("content algorithm not allowed")
+
+            encrypted_key = encrypted_data.find("ds:KeyInfo/xenc:EncryptedKey", NS)
+            if encrypted_key is None:
+                # SAML EncryptedElementType also permits EncryptedKey as a
+                # sibling of EncryptedData rather than embedded in ds:KeyInfo.
+                encrypted_key = encrypted_id.find("xenc:EncryptedKey", NS)
+            if encrypted_key is None:
+                raise ValueError("EncryptedKey missing")
+            transport_method = encrypted_key.find("xenc:EncryptionMethod", NS)
+            transport_algorithm = str(
+                transport_method.get("Algorithm", "")
+                if transport_method is not None else ""
+            )
+            encrypted_key_value = encrypted_key.findtext(
+                "xenc:CipherData/xenc:CipherValue", namespaces=NS
+            )
+            encrypted_value = encrypted_data.findtext(
+                "xenc:CipherData/xenc:CipherValue", namespaces=NS
+            )
+            wrapped_key = base64.b64decode(str(encrypted_key_value or ""), validate=True)
+            ciphertext = base64.b64decode(str(encrypted_value or ""), validate=True)
+            if len(wrapped_key) > 1024 or len(ciphertext) > MAX_XML_SIZE:
+                raise ValueError("encrypted payload too large")
+
+            private_key = serialization.load_pem_private_key(
+                self.struct.metadata.get_encryption_key_pem().encode("utf-8"),
+                password=None,
+            )
+            if transport_algorithm not in {
+                "http://www.w3.org/2009/xmlenc11#rsa-oaep",
+                "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p",
+            }:
+                raise ValueError("key transport algorithm not allowed")
+
+            digest_node = (
+                transport_method.find("ds:DigestMethod", NS)
+                if transport_method is not None else None
+            )
+            digest_uri = str(
+                digest_node.get("Algorithm", "")
+                if digest_node is not None else
+                "http://www.w3.org/2000/09/xmldsig#sha1"
+            )
+            digest_options = {
+                "http://www.w3.org/2000/09/xmldsig#sha1": hashes.SHA1,
+                "http://www.w3.org/2001/04/xmlenc#sha256": hashes.SHA256,
+            }
+            if digest_uri not in digest_options:
+                raise ValueError("OAEP digest not allowed")
+
+            mgf_node = (
+                transport_method.find("xenc11:MGF", NS)
+                if transport_method is not None else None
+            )
+            if transport_algorithm.endswith("rsa-oaep-mgf1p"):
+                if mgf_node is not None:
+                    raise ValueError("legacy OAEP cannot override MGF")
+                mgf_hash = hashes.SHA1()
+            else:
+                mgf_uri = str(
+                    mgf_node.get("Algorithm", "")
+                    if mgf_node is not None else
+                    "http://www.w3.org/2009/xmlenc11#mgf1sha1"
+                )
+                mgf_options = {
+                    "http://www.w3.org/2009/xmlenc11#mgf1sha1": hashes.SHA1,
+                    "http://www.w3.org/2009/xmlenc11#mgf1sha256": hashes.SHA256,
+                }
+                if mgf_uri not in mgf_options:
+                    raise ValueError("OAEP MGF not allowed")
+                mgf_hash = mgf_options[mgf_uri]()
+
+            oaep_params = (
+                transport_method.findtext("xenc:OAEPparams", namespaces=NS)
+                if transport_method is not None else None
+            )
+            label = None
+            if oaep_params is not None:
+                label = base64.b64decode(
+                    "".join(str(oaep_params).split()),
+                    validate=True,
+                )
+                if len(label) > 1024:
+                    raise ValueError("OAEP parameters too large")
+            transport_padding = padding.OAEP(
+                mgf=padding.MGF1(mgf_hash),
+                algorithm=digest_options[digest_uri](),
+                label=label,
+            )
+            content_key = private_key.decrypt(wrapped_key, transport_padding)
+            if len(content_key) != content_options[content_algorithm] or len(ciphertext) < 29:
+                raise ValueError("content key or ciphertext invalid")
+            plaintext = AESGCM(content_key).decrypt(
+                ciphertext[:12], ciphertext[12:], None
+            )
+            name_id = etree.fromstring(plaintext, parser=_secure_xml_parser())
+            if name_id.tag != f"{{{NS['saml']}}}NameID":
+                raise ValueError("decrypted element is not NameID")
+            return name_id
+        except Exception:
+            # Keep all failure modes indistinguishable to avoid a decryption oracle.
+            raise Exception("LogoutRequest EncryptedID 복호화에 실패했습니다.")
 
     def verify_redirect_query_signature(self, raw_query, parameter_name, issuer):
         values = {}
@@ -431,10 +575,14 @@ class Process:
         registered_acs = sp.get("acs_url", [])
         if isinstance(registered_acs, str):
             registered_acs = json.loads(registered_acs)
-        allowed_acs = [str(item.get("location", "")) for item in registered_acs if isinstance(item, dict)]
+        post_acs = [
+            item for item in registered_acs
+            if isinstance(item, dict) and item.get("binding") == BINDING_POST
+        ]
+        allowed_acs = [str(item.get("location", "")) for item in post_acs]
         if not acs_url and acs_index:
             match = next(
-                (item for item in registered_acs if isinstance(item, dict) and str(item.get("index", "")) == str(acs_index)),
+                (item for item in post_acs if str(item.get("index", "")) == str(acs_index)),
                 None,
             )
             acs_url = str((match or {}).get("location", ""))
@@ -643,8 +791,18 @@ class Process:
                 requested_contexts = json.loads(requested_contexts)
             except Exception:
                 requested_contexts = [requested_contexts]
-        if authn_context_comparison == "exact" and requested_contexts and authn_context_class_ref not in requested_contexts:
-            raise Exception("RequestedAuthnContext exact 조건을 충족하지 않습니다.")
+        if requested_contexts:
+            if authn_context_comparison == "better":
+                raise Exception(
+                    "RequestedAuthnContext better 비교는 인증 강도 순서를 안전하게 판단할 수 없어 지원하지 않습니다."
+                )
+            if (
+                authn_context_comparison in ["exact", "minimum", "maximum"]
+                and authn_context_class_ref not in requested_contexts
+            ):
+                raise Exception(
+                    f"RequestedAuthnContext {authn_context_comparison} 조건을 충족하지 않습니다."
+                )
 
         sp_entity_id = self._resolve_sp_entity_id(sp_entity_id, acs_url)
         acs_url = self._resolve_acs_url(acs_url, sp_entity_id)
@@ -1220,6 +1378,12 @@ class Process:
             raise Exception(f"LogoutRequest signature 검증에 실패했습니다: {signature_error or 'signature_missing'}")
 
         name_id_el = root.find("saml:NameID", NS)
+        encrypted_name_id = False
+        if name_id_el is None:
+            encrypted_id_el = root.find("saml:EncryptedID", NS)
+            if encrypted_id_el is not None:
+                name_id_el = self._decrypt_encrypted_id(encrypted_id_el)
+                encrypted_name_id = True
         nameid_value = ""
         nameid_format = ""
         nameid_sp_qualifier = ""
@@ -1262,6 +1426,7 @@ class Process:
             "nameid_value": nameid_value,
             "nameid_format": nameid_format,
             "nameid_sp_qualifier": nameid_sp_qualifier,
+            "encrypted_nameid": encrypted_name_id,
             "session_indexes": session_indexes,
             "relay_state": relay_state,
             "binding": binding,

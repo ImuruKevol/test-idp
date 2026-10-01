@@ -193,3 +193,12 @@ div(class="space-y-8")
                         div(class="rounded-xl border border-slate-200 p-4")
                             p(class="text-xs font-semibold text-slate-500") Encryption 인증서
                             p(class="mt-1 text-sm font-semibold text-slate-900") {{selectedSp.flags?.has_encryption_cert ? '등록됨' : '없음'}}
+                    div(*ngIf="selectedSp.certificates?.details?.length", class="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4")
+                        p(class="text-sm font-semibold text-slate-900") Metadata credential 해석
+                        p(class="text-xs leading-5 text-slate-500") X.509 인증서는 PKI 유효성 판단이 아니라 Metadata가 신뢰한 공개키 운반 용도로 사용합니다.
+                        div(*ngFor="let cert of selectedSp.certificates.details", class="rounded-lg border border-slate-200 bg-white p-3")
+                            div(class="flex flex-wrap items-center gap-2")
+                                span(class="rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-semibold text-white") {{cert.use}}
+                                span(*ngFor="let role of cert.accepted_roles", class="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700") {{role}}
+                                span(class="text-xs text-slate-500") {{cert.public_key_type}} · {{cert.key_size}} bit
+                            p(class="mt-2 break-all font-mono text-[10px] leading-4 text-slate-600") SHA-256 {{cert.sha256}}
